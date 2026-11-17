@@ -32,8 +32,6 @@ Layonara runs four machines. Tier 1 needs one, so only the game host matters her
 - **Why Hetzner.** Its API lets scripts create a server, label it and delete it. Layonara's later tiers use that
   for short-lived servers. For tier 1 any provider that gives you a fresh Ubuntu server and a firewall will do.
 
-Layonara's game host also allows TCP on the game port. The game itself uses UDP, and this chapter opens UDP only.
-
 ## The human playbook
 
 Each step is marked GENERIC (the same for any server), ADAPT (works with the named changes) or LAYONARA-ONLY
@@ -177,9 +175,9 @@ The incidents behind the rules. Dates are when they happened to Layonara.
 - **Cap the logs from the first day (2026-10-31).** The cap applies only to containers created after it is set.
   Containers made earlier keep writing without a limit until they are recreated. No outage is on record from
   this; the cap was added before one happened.
-- **Keep both firewalls.** One of Layonara's machines has no host firewall and relies on the provider's alone:
-  two internal services there listen on every address and are closed from outside only by the provider's rules.
-  Step 6 is the same lesson from the other side.
+- **Keep both firewalls.** Step 6 showed a published container port passing the host firewall on the test
+  machine. The provider's firewall sits outside the machine, so Docker cannot change it; the host firewall covers
+  everything Docker does not publish.
 - **After an Ubuntu release upgrade, check two files (2026-11-03).** The upgrade deleted `/etc/timezone`, and a
   container that mounted that file then failed to start. It also switched off Docker's package source in
   `/etc/apt/sources.list.d/`, so Docker stopped getting updates until it was put back.
