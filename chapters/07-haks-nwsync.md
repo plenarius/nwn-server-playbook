@@ -45,7 +45,7 @@ LAYONARA-ONLY (something we do that you probably shouldn't copy).
 The files for this chapter are in [`templates/haks`](../templates/haks), the start of a content repository, and
 four more files in `templates/game` for the web server:
 [`compose.web.yaml`](../templates/game/compose.web.yaml), [`Caddyfile`](../templates/game/Caddyfile),
-[`sites/nwsync.caddy`](../templates/game/sites/nwsync.caddy) and
+[`sites-available/nwsync.caddy`](../templates/game/sites-available/nwsync.caddy) and
 [`.env.web.example`](../templates/game/.env.web.example). The module repository from chapter 6 gets one more small
 tool, [`tools/set_haks.py`](../templates/module/tools/set_haks.py).
 
@@ -161,7 +161,7 @@ Copy the web server's files and the download folder to the server:
 ```sh
 ssh nwn@SERVER 'mkdir -p game/sites game/nwsync game/site && sudo chown nwn: game/nwsync game/site'
 scp templates/game/compose.web.yaml templates/game/Caddyfile templates/game/.env.web.example nwn@SERVER:game/
-scp templates/game/sites/nwsync.caddy nwn@SERVER:game/sites/
+scp templates/game/sites-available/nwsync.caddy nwn@SERVER:game/sites/
 rsync -a ~/myhaks/build/nwsync/ nwn@SERVER:game/nwsync/
 ```
 
@@ -178,8 +178,9 @@ In `.env`, do three things: delete the older `COMPOSE_FILE=` line so only the ne
 name in the `NWSYNC_HOST` and `NWN_NWSYNCURL` lines. Don't start anything yet; the next step does it.
 
 The web server is Caddy. I chose it because it gets a certificate for your name by itself and renews it by
-itself. Each site it serves is one small file in the folder `sites`, and the whole setup for this one is the few
-lines in `sites/nwsync.caddy`.
+itself. It serves one site for each file in the folder `sites` on the server, and the whole setup for this one is
+the few lines in `nwsync.caddy`. The template keeps such files in `sites-available`, so that a site is only
+switched on when you copy its file into `sites` and give it a name.
 
 ### 9. GENERIC. Put the content on the server and start
 
