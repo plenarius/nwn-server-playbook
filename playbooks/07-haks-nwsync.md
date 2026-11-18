@@ -84,7 +84,7 @@ Success: `== done: firewall` and `4` (two ports, each for IPv4 and IPv6).
 ```sh
 ssh $DEPLOY_USER@$SERVER 'mkdir -p game/sites game/nwsync game/site && sudo chown '$DEPLOY_USER': game/nwsync game/site'
 scp "$GUIDE/templates/game/compose.web.yaml" "$GUIDE/templates/game/Caddyfile" "$GUIDE/templates/game/.env.web.example" $DEPLOY_USER@$SERVER:game/
-scp "$GUIDE/templates/game/sites/nwsync.caddy" $DEPLOY_USER@$SERVER:game/sites/
+scp "$GUIDE/templates/game/sites-available/nwsync.caddy" $DEPLOY_USER@$SERVER:game/sites/
 rsync -a "$HAKS_DIR/build/nwsync/" $DEPLOY_USER@$SERVER:game/nwsync/
 scp "$HAKS_DIR"/build/hak/*.hak "$HAKS_DIR"/build/tlk/*.tlk "$REPO_DIR/$MODULE_NAME.mod" $DEPLOY_USER@$SERVER:
 ```
