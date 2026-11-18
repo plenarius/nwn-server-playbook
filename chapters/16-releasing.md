@@ -254,6 +254,7 @@ On 2026-11-18, on a fresh Hetzner cloud server of the smallest shared type that 
 - a release of a file that isn't a module at all: reported after three minutes as not healthy, then undone, with
   the earlier version healthy again;
 - a release that also carried a hak and a talk table: each installed in its own folder;
-- making a tag in the module's repository.
+- making a tag in the module's repository, and pushing one to GitHub (in the full run of tier 1 described in the
+  README).
 
-Not tested: pushing a tag to GitHub, and a release with players online.
+Not tested: a release with players online.
