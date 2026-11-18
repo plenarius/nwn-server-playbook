@@ -1,0 +1,15 @@
+# Adds a small web server (Caddy) that hands your custom content to players' games over HTTPS.
+# It is used together with the other Compose files, through the COMPOSE_FILE line in .env.
+services:
+  caddy:
+    image: caddy:${CADDY_VERSION:-2.11}
+    environment:
+      NWSYNC_HOST: ${NWSYNC_HOST:?set NWSYNC_HOST in .env}
+    ports:
+      - "80:80"      # needed once in a while to get and renew the certificate
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./nwsync:/srv/nwsync:ro     # the NWSync folder you publish
+      - ./caddy-data:/data          # the certificate lives here; keep it
+    restart: unless-stopped
