@@ -1,0 +1,11 @@
+# The download address for your custom content (chapter 7, tier 2), as a Coolify service on the control host.
+# It serves the folder publish.sh writes, as plain files. Set its domain in Coolify (for example
+# https://nwsync.example.org); Coolify's proxy gets the certificate.
+services:
+  downloads:
+    image: caddy:2.11
+    command: caddy run --config /etc/caddy/Caddyfile
+    volumes:
+      - /home/nwn/nwsync:/srv/nwsync:ro
+      - /home/nwn/content/Caddyfile:/etc/caddy/Caddyfile:ro
+    restart: unless-stopped
