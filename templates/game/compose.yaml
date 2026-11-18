@@ -1,0 +1,30 @@
+# The game server: nwserver with NWNX, in one container.
+# Settings come from the file .env beside this one (copy .env.example to .env and fill it in).
+services:
+  nwserver:
+    image: ${NWNX_IMAGE:?set NWNX_IMAGE in .env}
+    env_file: .env
+    environment:
+      # Named here only so that the server refuses to start without them.
+      NWN_DMPASSWORD: ${NWN_DMPASSWORD:?set NWN_DMPASSWORD in .env}
+      NWN_ADMINPASSWORD: ${NWN_ADMINPASSWORD:?set NWN_ADMINPASSWORD in .env}
+    ports:
+      - "${NWN_PORT:-5121}:${NWN_PORT:-5121}/udp"
+    volumes:
+      - ./home:/nwn/home          # modules, haks, the character vault, databases
+      - ./logs:/nwn/run/logs.0    # the game's own log files
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    healthcheck:
+      # Healthy when the server answers a status query, the same question a player's game asks.
+      test:
+        - CMD
+        - perl
+        - -MIO::Socket::INET
+        - -e
+        - '$$p=$$ENV{NWN_PORT}||5121; $$s=IO::Socket::INET->new(PeerAddr=>"127.0.0.1",PeerPort=>$$p,Proto=>"udp") or exit 1; $$s->send("BNXI".pack("v",$$p)); $$SIG{ALRM}=sub{exit 1}; alarm 3; $$s->recv($$b,512); exit(substr($$b,0,4) eq "BNXR"?0:1)'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
