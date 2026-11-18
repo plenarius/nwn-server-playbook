@@ -82,7 +82,7 @@ Success: `== done: firewall` and `4` (two ports, each for IPv4 and IPv6).
 ### 5. Send the web files, the download folder and the content
 
 ```sh
-ssh $DEPLOY_USER@$SERVER 'mkdir -p game/sites'
+ssh $DEPLOY_USER@$SERVER 'mkdir -p game/sites game/nwsync game/site && sudo chown '$DEPLOY_USER': game/nwsync game/site'
 scp "$GUIDE/templates/game/compose.web.yaml" "$GUIDE/templates/game/Caddyfile" "$GUIDE/templates/game/.env.web.example" $DEPLOY_USER@$SERVER:game/
 scp "$GUIDE/templates/game/sites/nwsync.caddy" $DEPLOY_USER@$SERVER:game/sites/
 rsync -a "$HAKS_DIR/build/nwsync/" $DEPLOY_USER@$SERVER:game/nwsync/

@@ -159,7 +159,7 @@ players which one it wants, and that is how a player always gets the content tha
 Copy the web server's files and the download folder to the server:
 
 ```sh
-ssh nwn@SERVER 'mkdir -p game/sites'
+ssh nwn@SERVER 'mkdir -p game/sites game/nwsync game/site && sudo chown nwn: game/nwsync game/site'
 scp templates/game/compose.web.yaml templates/game/Caddyfile templates/game/.env.web.example nwn@SERVER:game/
 scp templates/game/sites/nwsync.caddy nwn@SERVER:game/sites/
 rsync -a ~/myhaks/build/nwsync/ nwn@SERVER:game/nwsync/
