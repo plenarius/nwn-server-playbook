@@ -40,7 +40,7 @@ Each step carries a label: GENERIC (the same for any server), ADAPT (works once 
 LAYONARA-ONLY (something we do that you probably shouldn't copy).
 
 The files for this chapter are [`templates/site/index.html`](../templates/site/index.html), the page itself, and
-two small files in `templates/game`: [`sites/www.caddy`](../templates/game/sites/www.caddy) and
+two small files in `templates/game`: [`sites-available/www.caddy`](../templates/game/sites-available/www.caddy) and
 [`.env.site.example`](../templates/game/.env.site.example).
 
 ### 1. ADAPT. Make the page yours
@@ -96,7 +96,7 @@ From your own computer:
 ```sh
 ssh nwn@SERVER 'mkdir -p game/sites game/site && sudo chown nwn: game/site'
 rsync -a --delete --exclude .git ~/mysite/ nwn@SERVER:game/site/
-scp templates/game/sites/www.caddy templates/game/.env.site.example nwn@SERVER:game/
+scp templates/game/sites-available/www.caddy templates/game/.env.site.example nwn@SERVER:game/
 ```
 
 Then, on the server:
