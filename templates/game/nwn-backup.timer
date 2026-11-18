@@ -1,0 +1,12 @@
+# Starts nwn-backup.service once a night. Times are in UTC, the server's clock since chapter 1.
+[Unit]
+Description=Nightly backup of the NWN game server
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+# Up to ten minutes of spread, and a run after boot if the machine was off at the usual time.
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

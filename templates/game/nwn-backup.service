@@ -1,0 +1,11 @@
+# Runs one backup of the game server. Installed by chapter 12; started by nwn-backup.timer.
+# If your game folder is not /home/nwn/game, change the two paths below.
+[Unit]
+Description=Back up the NWN game server
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/nwn/game
+ExecStart=/home/nwn/game/backup.sh
