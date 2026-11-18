@@ -281,8 +281,10 @@ with the image `nwnxee/unified:ed79330` (game build 8193.37.17):
   let go;
 - moving to an older version and back;
 - the public list: listed within about half a minute of switching it on, and gone again after switching it off.
+- joining with the game itself as a dungeon master, by Direct Connect to the address, with the DM password from
+  `.env`: the server logged the arrival and the departure.
 
 With nobody online and the demo module, the server used about 15% of one shared core and 81 MB of memory.
 
-Not tested: logging in with the game itself (I checked with the status question and the public list, not with a
-player), a module other than the demo, a server with players on it, and a game build other than 8193.37.17.
+Not tested: joining as a player and making a character (the login above was as a dungeon master), a module other
+than the demo, a server with players on it, and a game build other than 8193.37.17.
