@@ -1,15 +1,20 @@
-# Adds a small web server (Caddy) that hands your custom content to players' games over HTTPS.
+# Adds a small web server (Caddy). It serves one site for each file in the folder "sites":
+# the download address for custom content (chapter 7) and a website (chapter 11).
 # It is used together with the other Compose files, through the COMPOSE_FILE line in .env.
 services:
   caddy:
     image: caddy:${CADDY_VERSION:-2.11}
     environment:
-      NWSYNC_HOST: ${NWSYNC_HOST:?set NWSYNC_HOST in .env}
+      # Each site's name. One that is not set is simply not used by any file in "sites".
+      NWSYNC_HOST: ${NWSYNC_HOST:-}
+      SITE_HOST: ${SITE_HOST:-}
     ports:
-      - "80:80"      # needed once in a while to get and renew the certificate
+      - "80:80"      # needed once in a while to get and renew the certificates
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./nwsync:/srv/nwsync:ro     # the NWSync folder you publish
-      - ./caddy-data:/data          # the certificate lives here; keep it
+      - ./sites:/etc/caddy/sites:ro
+      - ./nwsync:/srv/nwsync:ro     # the NWSync folder you publish (chapter 7)
+      - ./site:/srv/site:ro         # your website's files (chapter 11)
+      - ./caddy-data:/data          # the certificates live here; keep it
     restart: unless-stopped

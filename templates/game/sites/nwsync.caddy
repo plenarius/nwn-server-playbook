@@ -1,0 +1,7 @@
+# The download address for your custom content (chapter 7): the NWSync folder, served as plain files.
+{$NWSYNC_HOST} {
+	root * /srv/nwsync
+	file_server
+	# "latest" names the newest content. Nobody should keep an old copy of it.
+	header /latest Cache-Control "no-store"
+}

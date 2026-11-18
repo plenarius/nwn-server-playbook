@@ -1,7 +1,3 @@
-# One site: the NWSync folder, served as plain files. Caddy gets and renews the certificate by itself.
-{$NWSYNC_HOST} {
-	root * /srv/nwsync
-	file_server
-	# "latest" names the newest content. Nobody should keep an old copy of it.
-	header /latest Cache-Control "no-store"
-}
+# The web server reads one small file per site from the folder "sites".
+# Caddy gets and renews the certificate for each site by itself.
+import sites/*.caddy

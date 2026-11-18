@@ -43,9 +43,11 @@ Each step carries a label: GENERIC (the same for any server), ADAPT (works once 
 LAYONARA-ONLY (something we do that you probably shouldn't copy).
 
 The files for this chapter are in [`templates/haks`](../templates/haks), the start of a content repository, and
-three more files in `templates/game` for the web server: [`compose.web.yaml`](../templates/game/compose.web.yaml),
-[`Caddyfile`](../templates/game/Caddyfile) and [`.env.web.example`](../templates/game/.env.web.example). The module
-repository from chapter 6 gets one more small tool, [`tools/set_haks.py`](../templates/module/tools/set_haks.py).
+four more files in `templates/game` for the web server:
+[`compose.web.yaml`](../templates/game/compose.web.yaml), [`Caddyfile`](../templates/game/Caddyfile),
+[`sites/nwsync.caddy`](../templates/game/sites/nwsync.caddy) and
+[`.env.web.example`](../templates/game/.env.web.example). The module repository from chapter 6 gets one more small
+tool, [`tools/set_haks.py`](../templates/module/tools/set_haks.py).
 
 You need the tools from chapter 6, step 1. They include everything used here.
 
@@ -154,10 +156,12 @@ players which one it wants, and that is how a player always gets the content tha
 
 ### 8. GENERIC. Start the web server
 
-Copy the three web files and the download folder to the server:
+Copy the web server's files and the download folder to the server:
 
 ```sh
+ssh nwn@SERVER 'mkdir -p game/sites'
 scp templates/game/compose.web.yaml templates/game/Caddyfile templates/game/.env.web.example nwn@SERVER:game/
+scp templates/game/sites/nwsync.caddy nwn@SERVER:game/sites/
 rsync -a ~/myhaks/build/nwsync/ nwn@SERVER:game/nwsync/
 ```
 
@@ -173,8 +177,9 @@ nano .env
 In `.env`, do three things: delete the older `COMPOSE_FILE=` line so only the new one remains, and put your own
 name in the `NWSYNC_HOST` and `NWN_NWSYNCURL` lines. Don't start anything yet; the next step does it.
 
-The web server is Caddy. I chose it because it gets a certificate for your name by itself and renews it by itself,
-and its whole setup is the few lines in `Caddyfile`.
+The web server is Caddy. I chose it because it gets a certificate for your name by itself and renews it by
+itself. Each site it serves is one small file in the folder `sites`, and the whole setup for this one is the few
+lines in `sites/nwsync.caddy`.
 
 ### 9. GENERIC. Put the content on the server and start
 
