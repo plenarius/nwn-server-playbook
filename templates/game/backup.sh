@@ -18,6 +18,14 @@ cd "$(dirname "$0")"
 KEEP_DAYS=${KEEP_DAYS:-14}
 KEEP_MIN=${KEEP_MIN:-3}
 
+# The game's containers, found by the name the compose file gives them. This works whether plain Docker Compose
+# (tier 1) or Coolify (tier 2) started them.
+container() {
+  local ids; ids=$(docker ps -aq --filter "label=com.docker.compose.service=$1")
+  [ "$(printf '%s' "$ids" | grep -c .)" = 1 ] || { echo "expected one '$1' container, found $(printf '%s' "$ids" | grep -c .)" >&2; exit 1; }
+  echo "$ids"
+}
+
 stamp=$(date -u +%Y%m%d-%H%M%S)
 tmp=backups/.unfinished-$stamp
 mkdir -p "$tmp"
@@ -25,7 +33,8 @@ chmod 700 backups "$tmp"
 trap 'rm -rf "$tmp"' EXIT
 
 # 1. The database. The dump is taken as the game's own account, in one consistent snapshot.
-docker compose exec -T mariadb sh -c \
+db=$(container mariadb)
+docker exec -i "$db" sh -c \
   'mariadb-dump -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" --single-transaction --routines "$MARIADB_DATABASE"' \
   | gzip > "$tmp/db.sql.gz"
 # A complete dump ends with a line that says so. A cut-off one does not.

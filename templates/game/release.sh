@@ -9,13 +9,21 @@
 #   2. keeps a copy of every file it is about to replace, in releases/<date-and-time>/;
 #   3. stops the game, replaces the files, starts the game;
 #   4. waits until the game is healthy, and tells you plainly if it is not.
-# The game is away for a few seconds. Settings are not touched: if .env changed too, run
-# "docker compose up -d" afterwards.
+# The game is away for a few seconds. Settings are not touched: if they changed too, apply them afterwards
+# ("docker compose up -d" in tier 1, a redeploy in Coolify in tier 2).
 set -euo pipefail
 cd "$(dirname "$0")"
 
 owner=$(stat -c %U .)
 incoming=$(getent passwd "$owner" | cut -d: -f6)/incoming
+
+# The game's containers, found by the name the compose file gives them. This works whether plain Docker Compose
+# (tier 1) or Coolify (tier 2) started them.
+container() {
+  local ids; ids=$(docker ps -aq --filter "label=com.docker.compose.service=$1")
+  [ "$(printf '%s' "$ids" | grep -c .)" = 1 ] || { echo "expected one '$1' container, found $(printf '%s' "$ids" | grep -c .)" >&2; exit 1; }
+  echo "$ids"
+}
 
 dest() { # where a file of this kind lives
   case $1 in
@@ -28,7 +36,7 @@ dest() { # where a file of this kind lives
 
 wait_healthy() {
   for _ in $(seq 90); do
-    [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q nwserver)" 2>/dev/null)" = healthy ] && return 0
+    [ "$(docker inspect -f '{{.State.Health.Status}}' "$(container nwserver)" 2>/dev/null)" = healthy ] && return 0
     sleep 2
   done
   return 1
@@ -36,7 +44,7 @@ wait_healthy() {
 
 swap() { # folder holding the files to install; folder to keep the replaced ones in (or "" for none)
   local from=$1 keep=$2 f name d
-  docker compose stop nwserver
+  docker stop "$(container nwserver)" > /dev/null && echo "game stopped"
   for f in "$from"/*; do
     name=$(basename "$f"); d=$(dest "$name") || continue
     mkdir -p "$d"
@@ -44,7 +52,7 @@ swap() { # folder holding the files to install; folder to keep the replaced ones
     cp "$f" "$d/$name.new" && mv -f "$d/$name.new" "$d/$name"
     echo "installed $d/$name"
   done
-  docker compose start nwserver
+  docker start "$(container nwserver)" > /dev/null && echo "game started"
 }
 
 if [ "${1:-}" = "--undo" ]; then
@@ -69,6 +77,6 @@ if wait_healthy; then
   echo "the game is healthy again"
 else
   echo "the game did not become healthy within three minutes" >&2
-  echo "look at:  docker compose logs --tail 50 nwserver      and to go back:  sudo ./release.sh --undo" >&2
+  echo "look at:  docker logs --tail 50 $(container nwserver)      and to go back:  sudo ./release.sh --undo" >&2
   exit 1
 fi

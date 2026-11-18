@@ -1,0 +1,55 @@
+# The game server and its database, as one Coolify service (chapter 4, tier 2).
+# Paste this into Coolify as a Docker Compose service on the game host. The data stays where tier 1 put it,
+# in /home/nwn/game; change the three paths if your deploy user or folder is different.
+#
+# Coolify gives every setting you add to both containers. That is why the database administrator's password is
+# not here and must not be added to Coolify: the database was created in tier 1 and doesn't need it to start.
+# It stays in ~/game/db.env on the game host, where you type it when you need it.
+services:
+  nwserver:
+    image: ${NWNX_IMAGE}
+    environment:
+      NWN_PORT: ${NWN_PORT:-5121}
+      NWN_DMPASSWORD: ${NWN_DMPASSWORD}
+      NWN_ADMINPASSWORD: ${NWN_ADMINPASSWORD}
+      NWN_PLAYERPASSWORD: ${NWN_PLAYERPASSWORD}
+      NWNX_SQL_PASSWORD: ${NWNX_SQL_PASSWORD}
+    ports:
+      - "${NWN_PORT:-5121}:${NWN_PORT:-5121}/udp"
+    volumes:
+      - /home/nwn/game/home:/nwn/home
+      - /home/nwn/game/logs:/nwn/run/logs.0
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    healthcheck:
+      # Healthy when the server answers a status query, the same question a player's game asks.
+      test:
+        - CMD
+        - perl
+        - -MIO::Socket::INET
+        - -e
+        - '$$p=$$ENV{NWN_PORT}||5121; $$s=IO::Socket::INET->new(PeerAddr=>"127.0.0.1",PeerPort=>$$p,Proto=>"udp") or exit 1; $$s->send("BNXI".pack("v",$$p)); $$SIG{ALRM}=sub{exit 1}; alarm 3; $$s->recv($$b,512); exit(substr($$b,0,4) eq "BNXR"?0:1)'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  mariadb:
+    image: mariadb:${MARIADB_VERSION:-11.8}
+    environment:
+      MARIADB_DATABASE: ${NWNX_SQL_DATABASE:-nwn}
+      MARIADB_USER: ${NWNX_SQL_USERNAME:-nwn}
+      MARIADB_PASSWORD: ${NWNX_SQL_PASSWORD}
+    volumes:
+      - /home/nwn/game/db:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s

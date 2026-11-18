@@ -1,8 +1,7 @@
 # Chapter 4. The game server and NWNX
 
-**Status:** tier 1 is written and tested. Tier 2 (building your own image) and tier 3 (your own plugins, release
-tags) are not written yet. Chapter 3 is about Coolify, which tier 1 doesn't use, so it is fine to arrive here
-straight from chapter 2.
+**Status:** tiers 1 and 2 are written and tested. Tier 1 runs the game with plain Docker Compose; tier 2, further
+down, hands it over to Coolify. Tier 3 (your own plugins, your own image) is not written yet.
 
 ## What you learn
 
@@ -281,8 +280,8 @@ with the image `nwnxee/unified:ed79330` (game build 8193.37.17):
   let go;
 - moving to an older version and back;
 - the public list: listed within about half a minute of switching it on, and gone again after switching it off.
-- joining with the game itself by Direct Connect to the address, once as a dungeon master with the DM password
-  from `.env` and once as a player with a new character: the server logged both visits;
+- joining with the game itself by Direct Connect to the address, once as a dungeon master with the DM password from
+  `.env` and once as a player with a new character: the server logged both visits;
 - that the player's character was saved under `home/servervault`, and was still there, unchanged, after the
   container was removed and made again.
 
@@ -290,3 +289,193 @@ With nobody online and the demo module, the server used about 15% of one shared 
 
 Not tested: a module other than the demo, a server with more than one player on it, and a game build other than
 8193.37.17.
+
+---
+
+## Tier 2. The game in Coolify
+
+### What you learn
+
+How to hand your running game over to Coolify from chapter 3, without moving a single file of its data. Afterwards
+you start, stop, update and watch it from the dashboard, its settings live in one place, and the backup and release
+scripts from chapters 12 and 16 carry on working as before.
+
+When you're done, you'll have:
+
+- the game and its database as one Coolify service on the game host;
+- their data exactly where tier 1 put it, in `~/game`;
+- the database administrator's password kept out of Coolify altogether;
+- the way back to plain Docker Compose, tested, should you ever want it.
+
+Your players lose the game for about 20 seconds during the switch: 19 on the test.
+
+### What Layonara does
+
+- **The game is a Docker Compose service in Coolify**, with three containers: the game server, MariaDB and Redis.
+- **Its data folders stayed where our older, hand-run setup kept them.** The Coolify service simply points at them,
+  which is the approach this section takes too.
+- **Its settings are about 150 lines** in Coolify: the module, the passwords and one switch per NWNX plugin.
+- **The image is chosen by one setting**, and a new NWNX version reaches the live game only when one of us changes
+  it and redeploys.
+
+### The human playbook
+
+You need chapter 3 done, with the game host added to Coolify. The examples use `GAME` for the game host's address.
+
+#### 13. GENERIC. Know what changes, and what doesn't
+
+**Coolify starts and stops the game** from now on. The containers get new names, such as `nwserver-` followed by
+the service's id, instead of `game-nwserver-1`.
+
+**The data doesn't move.** `~/game/home`, `~/game/db` and `~/game/logs` stay where they are, and the new service
+uses them in place.
+
+**The settings move into Coolify.** Your `~/game/.env` stays behind as your written copy of them. Chapter 3's
+lesson applies: when you change a setting in Coolify, change it there too. The nightly backup takes that file.
+
+**One setting doesn't move at all: the database administrator's password.** Coolify gives every setting of a
+service to every one of its containers. I checked: a setting added for the database also showed up inside the game
+server. The database already exists from tier 1 and doesn't need that password to start, so it stays in
+`~/game/db.env`, out of Coolify and out of every container.
+
+#### 14. GENERIC. Update the backup and release scripts first
+
+The versions of `backup.sh` and `release.sh` in this repository find the game's containers by name, so they work
+whichever of plain Compose or Coolify started them. Older copies used `docker compose` in `~/game` and stop working
+after the switch. Copy the new ones before you start:
+
+```sh
+scp templates/game/backup.sh templates/game/release.sh nwn@GAME:game/
+ssh nwn@GAME 'cd game && sudo ./backup.sh'
+```
+
+That last command also gives you a fresh backup to stand on for the switch.
+
+#### 15. ADAPT. Create the service
+
+Change: the three paths in the file, if your deploy user isn't `nwn`.
+
+In the dashboard: **Projects**, make one called `game`, and add a resource: **Docker Compose**. Choose the game
+host as its server, and paste in [`templates/game/coolify.yaml`](../templates/game/coolify.yaml). **Don't deploy
+yet**: it has no settings.
+
+The file is chapter 4 and 5's two Compose files in one, with two differences. Its folders are full paths into
+`/home/nwn/game`, so Coolify uses tier 1's data. And it has no administrator password for the database.
+
+#### 16. GENERIC. Copy your settings across
+
+On the game host, print your settings, leaving out the one line that only plain Compose needs:
+
+```sh
+ssh nwn@GAME "grep -v -E '^(#|$|COMPOSE_FILE=)' game/.env"
+```
+
+That shows your passwords on your own screen, so mind who's looking. In the service's **Environment variables**,
+switch to **Developer View**, paste the lines, and save. **Don't paste `db.env`.**
+
+#### 17. GENERIC. Switch over
+
+Two commands, close together, at a quiet time:
+
+```sh
+ssh nwn@GAME 'cd game && docker compose down'
+```
+
+and then in Coolify, the service's **Deploy** button. Both containers should end up **Running (healthy)** on the
+service's page. Then check it as in chapter 4's step 5:
+
+```sh
+templates/game/nwn-status.py GAME
+```
+
+and see that the database still holds what it held, as in chapter 5's step 6. On the test, every row and the
+character files were still there, unchanged.
+
+#### 18. GENERIC. The everyday commands, in tier 2
+
+| You want to | Now |
+|---|---|
+| See whether it's up | The service's page in Coolify |
+| Restart it | The service's **Restart** in Coolify |
+| Change a setting, or switch a plugin on | Change it in **Environment variables**, then **Restart**. Then change `~/game/.env` to match |
+| Move to another NWNX version | Change `NWNX_IMAGE` in **Environment variables**, then **Restart** |
+| Read what it said | The service's logs in Coolify, or `docker logs` with the container's name |
+| Talk to the console | `docker attach` with the container's name, as before; leave with Ctrl-P Ctrl-Q |
+| Release a new module | `sudo ./release.sh`, exactly as in chapter 16 |
+| Find the containers' names | `docker ps --format '{{.Names}}'` on the game host |
+| Follow another chapter's `docker compose exec mariadb ...` or `docker compose logs ...` | The same with `docker exec -i` or `docker logs` and the container's name, such as `mariadb-` and the service's id |
+
+On Coolify 4.7.5, both **Restart** and **Deploy** made the containers again with the new settings; I tested a
+plugin switch and a change of NWNX version with each. A `docker restart`, or a restart from inside the game, keeps
+the old settings, as in tier 1.
+
+#### 19. ADAPT. Coolify's proxy on the game host
+
+Change: only if the game host still serves downloads or a website.
+
+Coolify started its web proxy on the game host when you added it. In tier 2 the downloads and the website move to
+the control host (chapters 7 and 11), so the game host has nothing for it to do. Stop it on the game host's
+**Proxy** page (**More actions**, **Stop Proxy**), as chapter 3's step 6 describes, and keep ports 80 and 443
+closed at the game host's provider firewall.
+
+#### 20. GENERIC. The way back
+
+If you ever want plain Compose again: the service's **Stop** in Coolify, then
+
+```sh
+ssh nwn@GAME 'cd game && docker compose up -d'
+```
+
+Wait until Coolify shows both containers stopped before you run it: two databases must never use the same folder at
+once. Tier 1's files are still in `~/game`, and the data never moved. I went back and forth once on the test, with
+a backup and a release in between, and nothing was lost either way. Copy any settings you changed in Coolify into
+`~/game/.env` first.
+
+#### 21. LAYONARA-ONLY. Redis and 150 settings
+
+Our service has a third container, Redis, which carries commands from our Discord bot into the game, and about 150
+settings. Both are tier 3 subjects. The pattern is the same: one service, data folders on the host, settings in
+Coolify, with a written copy.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/04-game-server-tier2.md`](../playbooks/04-game-server-tier2.md) has these
+steps in a fixed shape it can follow. It copies the settings without ever showing them, and the switch, which
+disconnects players, is always your yes.
+
+### Lessons
+
+- **Coolify shares every setting with every container.** I first wrote the template the other way round, expecting
+  a setting named under one container to stay with it. The test showed the database's administrator password inside
+  the game server, so the template now leaves that password out of Coolify entirely.
+- **Leave the data where it is.** Pointing the new service at the folders the old setup used meant the switch moved
+  nothing, and the way back is just as short. We moved our own game into Coolify the same way.
+- **Make the scripts find containers by name.** Container names change between plain Compose and Coolify, and
+  between deploys in Coolify. Scripts that ask Docker for "the container called `nwserver` in a Compose file" keep
+  working through all of it.
+
+### Tested
+
+On 2026-11-18, with Coolify 4.7.5, on a game host in the state tier 1 leaves it (game, database, the example module
+and a nightly backup) and a control host from chapter 3:
+
+- the switch: tier 1 stopped and the Coolify service started on the same folders, the game away for 19 seconds;
+  every database row and a character file unchanged by checksum;
+- where settings go: a probe service showed Coolify gives every setting with a value to every container; the
+  administrator password then removed from Coolify, absent from both containers, and still working from `db.env`;
+- the new `backup.sh` and `release.sh` against the Coolify service: a backup by hand and by the nightly timer, a
+  backup refused while the database was stopped, a release in 9 seconds and an undo;
+- a plugin switch and a change of NWNX version, each applied by **Restart** and by **Deploy**;
+- a reboot of the game host: both containers back, healthy, with their data; the console through the new name;
+- the way back: the service stopped, tier 1's Compose started on the same data, a backup and a release with the new
+  scripts there, then the Coolify service started again.
+
+- the agent playbook as written on a second, fresh pair, its roll back included; and, by a slip in my own test run,
+  tier 1's database started while the Coolify one was running: MariaDB refused to open the files the running copy
+  held, and the running database was unharmed. The roll back now checks first.
+
+The service was made, and its settings copied, through Coolify's API, which does what those dashboard pages do; the
+labels quoted here were read from the dashboard on the day.
+
+Not tested: pasting into **Developer View** by hand, Redis in the service, and a game with players during the
+switch.
