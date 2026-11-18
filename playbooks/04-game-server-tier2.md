@@ -76,7 +76,7 @@ Success: `copied`, then a count and `no root password`.
 wait for a yes.
 
 ```sh
-ssh $DEPLOY_USER@$GAME 'cd game && docker compose down 2>&1 | tail -1'
+ssh $DEPLOY_USER@$GAME 'cd game && docker compose stop nwserver mariadb 2>&1 | tail -1 && docker compose rm -f nwserver mariadb 2>&1 | tail -1'
 cl POST "/deploy?uuid=$SVC&force=false" > /dev/null
 for i in $(seq 60); do s=$(ssh $DEPLOY_USER@$GAME "docker inspect -f '{{.State.Health.Status}}' nwserver-$SVC 2>/dev/null"); [ "$s" = healthy ] && break; sleep 5; done; echo $s
 ```

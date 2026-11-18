@@ -378,11 +378,13 @@ switch to **Developer View**, paste the lines, and save. **Don't paste `db.env`.
 Two commands, close together, at a quiet time:
 
 ```sh
-ssh nwn@GAME 'cd game && docker compose down'
+ssh nwn@GAME 'cd game && docker compose stop nwserver mariadb && docker compose rm -f nwserver mariadb'
 ```
 
-and then in Coolify, the service's **Deploy** button. Both containers should end up **Running (healthy)** on the
-service's page. Then check it as in chapter 4's step 5:
+and then in Coolify, the service's **Deploy** button. The first command names the game and its database only, so if
+the game host also serves your downloads or website (chapters 7 and 11), they keep running; they move to the
+control host in those chapters' tier 2. Both containers should end up **Running (healthy)** on the service's page.
+Then check it as in chapter 4's step 5:
 
 ```sh
 templates/game/nwn-status.py GAME
@@ -473,6 +475,9 @@ and a nightly backup) and a control host from chapter 3:
 - the agent playbook as written on a second, fresh pair, its roll back included; and, by a slip in my own test run,
   tier 1's database started while the Coolify one was running: MariaDB refused to open the files the running copy
   held, and the running database was unharmed. The roll back now checks first.
+
+- the switch on a game host that also served downloads and a website with tier 1's web server: stopping only the
+  game and its database left both running throughout, and the game was away for 21 seconds.
 
 The service was made, and its settings copied, through Coolify's API, which does what those dashboard pages do; the
 labels quoted here were read from the dashboard on the day.
