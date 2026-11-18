@@ -36,6 +36,20 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 Every chapter has the same five parts: what you learn, what Layonara does, the playbook for people, the playbook
 for agents, and the lessons behind the rules.
 
+## Tested as a whole
+
+Each chapter says what was tested for it. Tier 1 was also run once from start to finish, the way a reader would
+do it: on 2026-11-18, on one fresh server, every tier 1 playbook in order (1, 2, 4, 5, 6, 7, 11, 12, 16), each
+command block exactly as written, from a clean copy of this repository. It ended with a game server answering by
+name, a database, a module built by its own check on GitHub, custom content downloaded over HTTPS, a website,
+nightly backups and one release. From the moment the server existed, that took under twelve minutes.
+
+One thing differed from the playbooks: the GitHub repository for the module already existed, so playbook 6 pushed
+to it and did not create it.
+
+That run exists because the chapter-by-chapter tests had missed a fault between two chapters. It is the check to
+repeat whenever a template changes.
+
 ## How code gets in here
 
 Every script, workflow and compose file the guide quotes is a file in this repository that you can copy and run.
