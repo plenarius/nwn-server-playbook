@@ -1,7 +1,8 @@
 # Chapter 1. Choosing and preparing servers
 
-**Status:** tier 1 is written and tested. Tiers 2 and 3 (a second machine, the private network between machines, a
-provider token for scripts) are not written yet.
+**Status:** tiers 1 and 2 are written and tested. Tier 1 is one machine; tier 2, further down, adds a second
+machine and a private network between the two. Tier 3 (a provider token for scripts, short-lived servers) is not
+written yet.
 
 ## What you learn
 
@@ -215,3 +216,197 @@ the smallest shared type, with Ubuntu 26.04.1, Docker 29.10.0 and Compose 5.8.0:
 
 Not tested: other providers, other Ubuntu releases, and a game with players on a machine this small. If your setup
 is one of those, the steps should still hold, but you'd be the first to find out.
+
+---
+
+## Tier 2. A second machine and a private network
+
+### What you learn
+
+Sooner or later one machine is asked to do too much. Building haks, running tests and hosting tools all compete
+with the game for the same cores, and the game is the one your players feel. Tier 2 gives those jobs a machine of
+their own, and joins the two machines with a private network so they can talk to each other without anything
+being open to the internet.
+
+When you're done, you'll have:
+
+- a **game host** that runs the game and its database, and little else;
+- a **control host** for everything around the game: builds, tools, and in later chapters Coolify and the
+  operations service;
+- a WireGuard network between them, each with an address of its own, such as `10.77.0.1` and `10.77.0.2`;
+- the habit that goes with it: a service that only your own machines use is published on the private address,
+  never on the public one.
+
+**Time:** about half an hour, most of it preparing the second machine with tier 1's steps. The private network
+itself took under a minute on the test.
+
+### What Layonara does
+
+- **The game host** has 2 dedicated cores, 8 GB and an 80 GB disk, and runs the game, its database and Redis.
+- **The control host** has 4 cores and about 8 GB, and runs our tools: Coolify, the operations service, the
+  Discord bot, the build machine for haks, a second game server for testing, and monitoring.
+- **A WireGuard network** joins all our machines, with the control host as its hub. It uses one `/24` network,
+  UDP port 51820, and a keepalive every 25 seconds.
+- **The game's database and Redis are published only on the game host's private address.** The control host
+  reaches them through the tunnel; the internet can't reach them at all.
+- **Our machines are at two providers.** That's one reason we use WireGuard and not a provider's own private
+  network: WireGuard doesn't care whose machines it joins.
+- **Distance matters for chatty services.** The service that reads the game's database all day runs on the control
+  host, about a millisecond from the game host. From one of our machines at the other provider, the same query
+  would take about 25 ms. When we moved most services to that machine, this one stayed where it was.
+
+### The human playbook
+
+#### 9. GENERIC. Decide what goes where
+
+Keep the **game host** for the game and its database. Everything players don't touch directly goes to the
+**control host**. The rule of thumb I use: if it stopped for an hour, would anyone in the game notice? If not, it
+belongs on the control host.
+
+One exception is worth planning for. A service that talks to the game's database many times a second should sit
+close to it: on the game host, or on a control host in the same data centre. A few milliseconds per query add up
+quickly.
+
+#### 10. ADAPT. Rent and prepare the second machine
+
+Change: the provider, the region, the sizes.
+
+- **The game host** deserves dedicated cores in tier 2. On shared cores the game runs beside other customers' work,
+  and a busy neighbour shows up as lag. Ours has 2 dedicated cores and 8 GB.
+- **The control host** can use shared cores. Ours has 4 cores and about 8 GB.
+- **Put both in the same region**, so the network between them is fast. Between two test machines in the same
+  Hetzner location the round trip was about a millisecond.
+
+Prepare the new machine exactly as in steps 2 to 7. The script is the same; tier 1's settings are what you want on
+both machines.
+
+#### 11. ADAPT. Open the tunnel's port at the provider
+
+Change: where your provider keeps its firewall.
+
+Add one rule to each machine's provider firewall: **UDP 51820**, inbound, **from the other machine's public address
+only**. WireGuard already ignores anyone without a key, but there's no reason to let strangers knock. I tested this
+rule at Hetzner, and the tunnel came up through it as before.
+
+#### 12. GENERIC. Make the private network
+
+The script is [`templates/host/wireguard.sh`](../templates/host/wireguard.sh). If your copy of `templates/host` on
+the machines is older than this section, copy it to both again (step 4 of tier 1).
+
+Pick a private range that nothing else of yours uses. This guide uses `10.77.0.0/24`, with the control host at
+`.1` and the game host at `.2`.
+
+On the **control host**:
+
+```sh
+sudo ~/host/wireguard.sh init 10.77.0.1/24
+```
+
+On the **game host**:
+
+```sh
+sudo ~/host/wireguard.sh init 10.77.0.2/24
+```
+
+Each prints a **public key**, a line of 44 characters. Public keys are safe to copy around; that's what they're
+for. Each machine also made a private key, which stays in `/etc/wireguard/wg0.conf` and never leaves the machine.
+
+Now tell each machine about the other. With the game host's public key and public address, on the **control
+host**:
+
+```sh
+sudo ~/host/wireguard.sh peer game GAME_HOST_PUBLIC_KEY 10.77.0.2 GAME_HOST_PUBLIC_ADDRESS
+sudo ~/host/wireguard.sh up
+```
+
+And the mirror image on the **game host**:
+
+```sh
+sudo ~/host/wireguard.sh peer control CONTROL_HOST_PUBLIC_KEY 10.77.0.1 CONTROL_HOST_PUBLIC_ADDRESS
+sudo ~/host/wireguard.sh up
+```
+
+`up` does four things: it starts the network, starts it at every boot, opens UDP 51820 in `ufw`, and lets
+everything that arrives through the tunnel past the host firewall. That last one is a choice: everything that comes
+through the tunnel comes from one of your own machines. It also makes Docker wait for the network at boot; step 14
+says why.
+
+Every command here is safe to run twice. Running `init` with a different address on a machine that already has
+one is refused, so a typo can't quietly replace a working setup.
+
+#### 13. GENERIC. Check it
+
+From the control host:
+
+```sh
+ping -c 3 10.77.0.2
+sudo wg show
+```
+
+You should see replies, and under the peer a line `latest handshake` a few seconds old. That handshake means the
+two machines have recognised each other's keys. If there are no replies, the provider firewall rule from step 11 is
+the first thing to look at.
+
+#### 14. GENERIC. Publish private services on the private address
+
+This is the habit the network is for. A service on the game host that only your control host should reach is
+published like this:
+
+```yaml
+ports:
+  - "10.77.0.2:3306:3306"
+```
+
+with the private address in front. Chapter 1's step 6 showed that a published port is open to the world even when
+`ufw` has no rule for it. Published on the private address instead, it simply doesn't exist on the public one. I
+checked both from the control host, where it answered, and from outside, where it didn't.
+
+One trap comes with this, and it's why `up` makes Docker wait for the network. If Docker starts a container
+before the private address exists, the container fails to start. I tried it: the container stopped with
+`driver failed programming external connectivity`, and **it stayed stopped** even after the network came up a
+moment later. At boot, Docker and WireGuard start at about the same time, so without help it's a coin toss. On the
+test machine Docker started first in three boots out of four and still won the race by luck. The file `up` writes,
+`/etc/systemd/system/docker.service.d/10-after-wireguard.conf`, makes Docker start after the network, every time.
+
+#### 15. LAYONARA-ONLY. A hub with spokes
+
+Our network has the control host as a hub with every other machine as a spoke, and it has grown one machine at a
+time. For two machines there's no hub to speak of: each simply knows the other. If you add a third, give it a peer
+line for each machine it needs to reach, and add it as a peer on those.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/01-servers-tier2.md`](../playbooks/01-servers-tier2.md) has these steps
+in a fixed shape it can follow. Renting the machine and the provider firewall rule stay with you; the agent does
+the rest and checks it.
+
+### Lessons
+
+- **Keep the database's closest friend close.** The millisecond between our game host and control host is why the
+  service that queries the game's database most stayed on the control host when everything else moved. Placement
+  is a performance decision as much as a tidy one.
+- **Private services go on the private address.** Our game's database and Redis are published only on the game
+  host's private address. Together with the provider firewall, that's two separate things that would both have to
+  go wrong before a stranger could reach them.
+- **Make Docker wait for the private network (2026-11-18).** This one I found while testing this section: a
+  container published on the private address fails to start if it's started before the address exists, and Docker
+  doesn't try again. One small file fixes it, and `wireguard.sh up` writes it for you.
+
+### Tested
+
+On 2026-11-18, on two fresh Hetzner cloud servers of the smallest shared type in the same location, both prepared
+with tier 1:
+
+- `init`, `peer` and `up` on both, then all three again on one of them (nothing changed, still one peer), and
+  `init` with a different address (refused);
+- ping both ways (about 1 ms) and a WireGuard handshake;
+- a container published on the private address only: reachable from the control host, not from outside;
+- starting that container while the private network was down: it failed and stayed stopped. Then four reboots
+  without the ordering file (Docker started first in three of them) and three reboots with it (Docker started after
+  the network every time, and the container ran);
+- a reboot of the control host: the tunnel came back by itself;
+- a restart of Docker on the game host: the container kept running and stayed reachable;
+- a provider firewall at Hetzner allowing UDP 51820 only from the control host: the tunnel came up through it;
+- a scan of the game host's public address from outside: only SSH answered.
+
+Not tested: three or more machines, machines at two different providers, and IPv6 inside the tunnel.
