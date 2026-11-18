@@ -1,5 +1,6 @@
-# Adds a small web server (Caddy). It serves one site for each file in the folder "sites":
-# the download address for custom content (chapter 7) and a website (chapter 11).
+# Adds a small web server (Caddy). It serves one site for each file in the folder "sites" beside this
+# file. The files to choose from are in "sites-available": the download address for custom content
+# (chapter 7) and a website (chapter 11). Copy a file into "sites" only together with setting its name.
 # It is used together with the other Compose files, through the COMPOSE_FILE line in .env.
 services:
   caddy:
