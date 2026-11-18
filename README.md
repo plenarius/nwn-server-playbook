@@ -21,6 +21,7 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 | # | Chapter | People | Agents | State |
 |---|---|---|---|---|
 | 1 | Choosing and preparing servers | [chapter](chapters/01-servers.md) | [playbook](playbooks/01-servers.md) | Tier 1 written and tested; tiers 2 and 3 to come |
+| 2 | DNS: giving your server a name | [chapter](chapters/02-dns.md) | [playbook](playbooks/02-dns.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 
 Every chapter has the same five parts: what you learn, what Layonara does, the playbook for people, the playbook
 for agents, and the lessons behind the rules.
