@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# One address record at Cloudflare DNS: show it, create it, move it or delete it.
+# One address record at Cloudflare DNS: show it, create it, move it, proxy it or delete it.
 #
 #   cf-record.sh show   NAME            NAME is the full name, e.g. game.example.org
 #   cf-record.sh create NAME ADDRESS    ADDRESS is an IPv4 address; this makes an A record
 #   cf-record.sh move   NAME ADDRESS    point a record this script made at a new IPv4 address
+#   cf-record.sh proxy  NAME on|off     turn Cloudflare's proxy on or off for a record this script made
 #   cf-record.sh delete NAME
 #
 # Needs two settings in the environment, put there by a person:
@@ -11,7 +12,7 @@
 #   CF_ZONE_ID     the zone's id (Cloudflare dashboard, the domain's Overview page)
 # Optional: TTL in seconds (default 300).
 #
-# Records it creates are DNS-only (not proxied) and carry the comment "nwn-server-playbook".
+# Records it creates start DNS-only (not proxied) and carry the comment "nwn-server-playbook".
 # "create" refuses a name that already has a record. "delete" refuses a record without that comment,
 # so it can only remove what it made. The token is never printed.
 set -euo pipefail
@@ -42,7 +43,7 @@ for x in (r if isinstance(r, list) else [r]):
 }
 
 cmd=${1:-} name=${2:-}
-[ -n "$cmd" ] && [ -n "$name" ] || { sed -n '2,8p' "$0" >&2; exit 2; }
+[ -n "$cmd" ] && [ -n "$name" ] || { sed -n '2,9p' "$0" >&2; exit 2; }
 existing=$(api GET "$API?name=$name" | records)
 
 case $cmd in
@@ -70,6 +71,14 @@ print(json.dumps({"type": t, "name": n, "content": a, "ttl": int(ttl), "proxied"
     [ "$comment" = "$TAG" ] || { echo "not moving $rname: it was not made by this script" >&2; exit 1; }
     api PATCH "$API/$id" "{\"content\": \"$addr\"}" | records | awk -v old="$old" '{print "moved", $1, $2, "from", old, "to", $3}'
     ;;
+  proxy)
+    mode=${3:-}
+    case $mode in on) flag=true ;; off) flag=false ;; *) echo "say on or off" >&2; exit 2 ;; esac
+    [ "$(printf '%s\n' "$existing" | grep -c .)" = 1 ] || { echo "$name must have exactly one record" >&2; exit 1; }
+    read -r type rname _ _ _ id comment <<< "$existing"
+    [ "$comment" = "$TAG" ] || { echo "not changing $rname: it was not made by this script" >&2; exit 1; }
+    api PATCH "$API/$id" "{\"proxied\": $flag}" | records | awk '{print "now", $1, $2, $3, $4}'
+    ;;
   delete)
     [ -n "$existing" ] || { echo "no record for $name"; exit 0; }
     echo "$existing" | while read -r type rname addr _ _ id comment; do
@@ -81,5 +90,5 @@ print(json.dumps({"type": t, "name": n, "content": a, "ttl": int(ttl), "proxied"
       echo "deleted $type $rname $addr"
     done
     ;;
-  *) sed -n '2,8p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,9p' "$0" >&2; exit 2 ;;
 esac
