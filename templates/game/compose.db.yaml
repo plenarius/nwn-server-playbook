@@ -1,0 +1,27 @@
+# Adds a MariaDB database beside the game server. It is used together with compose.yaml:
+# the line COMPOSE_FILE=compose.yaml:compose.db.yaml in .env makes every "docker compose" command read both.
+services:
+  mariadb:
+    image: mariadb:${MARIADB_VERSION:-11.8}
+    env_file: db.env              # holds only the database's own root password
+    environment:
+      # The game's account, made the first time the database starts. Same values the game logs in with.
+      MARIADB_DATABASE: ${NWNX_SQL_DATABASE:?set NWNX_SQL_DATABASE in .env}
+      MARIADB_USER: ${NWNX_SQL_USERNAME:?set NWNX_SQL_USERNAME in .env}
+      MARIADB_PASSWORD: ${NWNX_SQL_PASSWORD:?set NWNX_SQL_PASSWORD in .env}
+    volumes:
+      - ./db:/var/lib/mysql       # the database's files
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    # No "ports" on purpose. Only the game server talks to the database, over Docker's own network,
+    # so nothing about it is reachable from outside this machine.
+
+  nwserver:
+    depends_on:
+      mariadb:
+        condition: service_healthy
