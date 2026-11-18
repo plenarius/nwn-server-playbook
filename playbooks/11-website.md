@@ -70,7 +70,7 @@ Success: `== done: firewall`, then `1`.
 ### 3. Switch the site on
 
 ```sh
-scp "$GUIDE/templates/game/sites/www.caddy" $DEPLOY_USER@$SERVER:game/sites/
+scp "$GUIDE/templates/game/sites-available/www.caddy" $DEPLOY_USER@$SERVER:game/sites/
 scp "$GUIDE/templates/game/.env.site.example" $DEPLOY_USER@$SERVER:game/
 ssh $DEPLOY_USER@$SERVER "cd game && cat .env.site.example >> .env && sed -i 's|^SITE_HOST=.*|SITE_HOST=$SITE_HOST|' .env && before=\$(docker inspect -f '{{.Id}}' game-nwserver-1) && docker compose up -d caddy 2>&1 | tail -1 && [ \"\$before\" = \"\$(docker inspect -f '{{.Id}}' game-nwserver-1)\" ] && echo 'game untouched'"
 ```
