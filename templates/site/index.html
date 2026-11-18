@@ -1,0 +1,80 @@
+<!doctype html>
+<!--
+  A one-page website for your server. Everything is in this one file: no scripts, no fonts or pictures
+  from other sites, nothing to build.
+
+  Change these before you publish it:
+    1. the two names in <title> and <h1>, and the line under the name;
+    2. the address in "How to join" (your game's name from chapter 2, or its address);
+    3. the paragraph in "About this world";
+    4. the link in "Where to find us";
+    5. the colour in the first line of the <style> block, if you like.
+
+  Never put a password on this page. If your server needs one to join, say where people can ask for it.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My World: a Neverwinter Nights persistent world</title>
+  <meta name="description" content="How to join My World, a persistent world for Neverwinter Nights: Enhanced Edition.">
+  <style>
+    :root { --accent: #8a5a1c; --ink: #1d1a16; --soft: #5d564c; --paper: #faf7f2; --line: #ddd5c8; }
+    @media (prefers-color-scheme: dark) {
+      :root { --accent: #e0b070; --ink: #ece6dc; --soft: #a79f92; --paper: #171512; --line: #37322b; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 3rem 1.25rem 4rem; background: var(--paper); color: var(--ink);
+      font: 1.0625rem/1.65 Georgia, "Iowan Old Style", "Times New Roman", serif;
+    }
+    main { max-width: 38rem; margin: 0 auto; }
+    h1 { font-size: 2.4rem; line-height: 1.15; margin: 0 0 .4rem; letter-spacing: -.01em; }
+    .lead { color: var(--soft); font-size: 1.2rem; margin: 0 0 2.5rem; }
+    h2 {
+      font: 600 .8rem/1.4 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--accent); margin: 2.75rem 0 .75rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+    }
+    ol { padding-left: 1.3rem; margin: 0; }
+    li { margin: .4rem 0; }
+    code {
+      font: .95em ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      background: color-mix(in srgb, var(--accent) 12%, transparent); padding: .12em .4em; border-radius: .25rem;
+      white-space: nowrap;
+    }
+    a { color: var(--accent); text-underline-offset: .15em; }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    footer { margin-top: 3.5rem; color: var(--soft); font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>My World</h1>
+    <p class="lead">A persistent world for Neverwinter Nights: Enhanced Edition.</p>
+
+    <h2>How to join</h2>
+    <ol>
+      <li>Start Neverwinter Nights: Enhanced Edition.</li>
+      <li>Choose <strong>Multiplayer</strong>, then <strong>Join Internet Game</strong>.</li>
+      <li>Choose <strong>Direct Connect</strong> and enter <code>game.example.org:5121</code></li>
+      <li>The game downloads what it needs by itself. Make a character and step in.</li>
+    </ol>
+
+    <h2>About this world</h2>
+    <p>
+      Say here, in a few sentences, what kind of place this is: the setting, the style of play, and what a new
+      player can expect on their first evening.
+    </p>
+
+    <h2>Where to find us</h2>
+    <p>
+      Questions, stories and news live on <a href="https://example.org/your-community-link">our community page</a>.
+      Come and say hello before you log in, or after.
+    </p>
+
+    <footer>
+      <p>Neverwinter Nights is a trademark of its owners. This is a fan-run server.</p>
+    </footer>
+  </main>
+</body>
+</html>

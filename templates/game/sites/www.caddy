@@ -1,0 +1,6 @@
+# Your website (chapter 11): the files in the folder "site", served as they are.
+{$SITE_HOST} {
+	root * /srv/site
+	file_server
+	encode zstd gzip
+}
