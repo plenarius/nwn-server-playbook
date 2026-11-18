@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart Coolify's proxy if it holds an old Docker socket
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/coolify-proxy-socket-check

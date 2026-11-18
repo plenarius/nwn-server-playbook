@@ -22,7 +22,7 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 |---|---|---|---|---|
 | 1 | Choosing and preparing servers | [chapter](chapters/01-servers.md) | [tier 1](playbooks/01-servers.md), [tier 2](playbooks/01-servers-tier2.md) | Tiers 1 and 2 written and tested; tier 3 to come |
 | 2 | DNS: giving your server a name | [chapter](chapters/02-dns.md) | [playbook](playbooks/02-dns.md) | Tier 1 written and tested; tiers 2 and 3 to come |
-| 3 | Coolify | | | Not used in tier 1; not written yet |
+| 3 | Coolify | [chapter](chapters/03-coolify.md) | [tier 2](playbooks/03-coolify.md) | Not used in tier 1; tier 2 written and tested; tier 3 to come |
 | 4 | The game server and NWNX | [chapter](chapters/04-game-server.md) | [playbook](playbooks/04-game-server.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 5 | The database | [chapter](chapters/05-database.md) | [playbook](playbooks/05-database.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 6 | Your module in git | [chapter](chapters/06-module.md) | [playbook](playbooks/06-module.md) | Tier 1 written and tested; tiers 2 and 3 to come |
