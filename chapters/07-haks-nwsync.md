@@ -290,9 +290,10 @@ type that had been through chapters 1, 4, 5 and 6, and a temporary name in our o
 - the game finding `latest` by itself and advertising it, including the first failed tries before the certificate
   existed;
 - the server reading a table from the example hak and a line from the example talk table;
-- two updates of the content, the second in the order of step 11: the running game kept advertising the old content
-  until its restart and the new one after it.
+- two updates of the content, the second in the order of step 11: the running game kept advertising the old
+  content until its restart and the new one after it;
+- a player's game joining by name: it was sent to download the content, came back four seconds later and was let
+  in.
 
-Not tested: a player's game downloading the content (the address was checked piece by piece from outside, but not
-with the game itself), a separate `nwsync` name beside the `game` name (one name served both in the test), large
-content, and the certificate's renewal, which is due only after two months.
+Not tested: a separate `nwsync` name beside the `game` name (one name served both in the test), large content, and
+the certificate's renewal, which is due only after two months.
