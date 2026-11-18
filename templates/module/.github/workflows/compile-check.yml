@@ -1,0 +1,62 @@
+name: Compile check
+
+# Builds the module on every pull request and on every change to the main branch, and fails when a script
+# does not compile. It runs on GitHub's own machines, needs no secrets and deploys nothing.
+# The built module is kept with the run for 14 days, so you can download exactly what was checked.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: compile-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NASHER_VERSION: "1.2.2"
+  NEVERWINTER_VERSION: "2.3.2"
+  # The same image your server runs. The game's own scripts are copied out of it for the compiler.
+  NWNX_IMAGE: nwnxee/unified:ed79330
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nasher and the compiler
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$HOME/bin"
+          cd "$RUNNER_TEMP"
+          gh release download "$NASHER_VERSION" -R squattingmonk/nasher -p nasher_linux.tar.gz
+          gh release download "$NEVERWINTER_VERSION" -R niv/neverwinter.nim -p neverwinter-x86_64-linux-gnu.zip
+          tar xzf nasher_linux.tar.gz -C "$HOME/bin" nasher
+          unzip -oq neverwinter-x86_64-linux-gnu.zip -d "$HOME/bin"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Copy the game's data out of the server image
+        run: |
+          cid=$(docker create "$NWNX_IMAGE")
+          docker cp "$cid:/nwn/data" "$RUNNER_TEMP/nwn"
+          docker rm "$cid" > /dev/null
+          mkdir -p "$RUNNER_TEMP/nwn-home"
+
+      - name: Build the module
+        env:
+          NWN_ROOT: ${{ runner.temp }}/nwn
+          NWN_HOME: ${{ runner.temp }}/nwn-home
+        run: nasher pack --yes --abortOnCompileError
+
+      - name: Check that every script is in the module
+        run: python3 tools/check_compiled.py *.mod src
+
+      - name: Keep the built module
+        uses: actions/upload-artifact@v4
+        with:
+          name: module
+          path: "*.mod"
+          retention-days: 14
