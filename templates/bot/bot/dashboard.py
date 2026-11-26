@@ -28,7 +28,7 @@ def look(status: str | None) -> tuple[str, int]:
     return "Offline", RED
 
 
-def render(server_name: str, status: dict | None, progress: dict | None, up_since: float | None, error: str | None = None,
+def render(server_name: str, status: dict | None, progress: dict | None, error: str | None = None,
            now: float | None = None) -> discord.Embed:
     """The dashboard's embed. Pure, so the tests can check it without Discord."""
     now = now or time.time()
@@ -49,8 +49,9 @@ def render(server_name: str, status: dict | None, progress: dict | None, up_sinc
         players_text = str(players) if isinstance(players, int) and players >= 0 else "?"
     embed.add_field(name="Players", value=players_text, inline=True)
     embed.add_field(name="Module", value=status.get("module") or "?", inline=True)
-    if word in ("Online", "Starting", "Unhealthy") and up_since:
-        embed.add_field(name="Last restart", value=f"<t:{int(up_since)}:R>", inline=True)
+    if word in ("Online", "Starting", "Unhealthy"):
+        since = started_at(status)
+        embed.add_field(name="Last restart", value=f"<t:{int(since)}:R>" if since else "unknown", inline=True)
     embed.add_field(name="NWNX", value=status.get("nwnx_running") or "?", inline=True)
 
     pending = status.get("restart_pending") or (progress or {}).get("countdown")
@@ -74,7 +75,6 @@ class Dashboard:
         self.view_factory = view_factory  # None when the bot runs without the gateway: no buttons, they would do nothing
         self._file = os.path.join(settings.data_dir, "dashboard.json")
         self.message_id = self._load().get("message_id")
-        self.up_since = self._load().get("up_since")
         self.last_ok = 0.0
         self._lock = asyncio.Lock()
 
@@ -88,7 +88,7 @@ class Dashboard:
     def _save(self) -> None:
         tmp = self._file + ".tmp"
         with open(tmp, "w") as f:
-            json.dump({"message_id": self.message_id, "up_since": self.up_since}, f)
+            json.dump({"message_id": self.message_id}, f)
         os.replace(tmp, self._file)
 
     async def build(self) -> discord.Embed:
@@ -96,14 +96,8 @@ class Dashboard:
             status, progress = await asyncio.gather(self.api.status(), self.api.progress())
         except OpsApiError as e:
             log.warning("status: %s", e)
-            return render(self.s.server_name, None, None, None, e.message)
-        running = (status.get("status") or "").startswith("running")
-        if running:
-            # The log's time when there is one; otherwise the first refresh that saw the game running.
-            self.up_since = started_at(progress) or self.up_since or time.time()
-        else:
-            self.up_since = None
-        return render(self.s.server_name, status, progress, self.up_since)
+            return render(self.s.server_name, None, None, e.message)
+        return render(self.s.server_name, status, progress)
 
     async def refresh(self) -> None:
         async with self._lock:
@@ -133,19 +127,13 @@ class Dashboard:
             await asyncio.sleep(self.s.refresh_seconds)
 
 
-def started_at(progress: dict | None, now: float | None = None) -> float | None:
-    """When the running game last loaded its module, from the line the ops API finds in the game's log:
-    `[Thu Nov 26 15:57:24] Loading Module: mymodule`. The game writes its container's time, which is UTC."""
-    line = ((progress or {}).get("markers") or {}).get("module") or ""
-    if not (line.startswith("[") and "]" in line):
+def started_at(status: dict | None) -> float | None:
+    """When the game's container last started, from the ops API's `started_at` (ISO 8601 UTC, null when it can't tell)."""
+    value = (status or {}).get("started_at")
+    if not isinstance(value, str):
         return None
-    now = now or time.time()
     try:
-        when = datetime.strptime(line[1:line.index("]")], "%a %b %d %H:%M:%S")
+        when = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    year = datetime.fromtimestamp(now, tz=timezone.utc).year
-    stamp = when.replace(year=year, tzinfo=timezone.utc).timestamp()
-    if stamp > now + 86400:  # a start on 31 December, read in January
-        stamp = when.replace(year=year - 1, tzinfo=timezone.utc).timestamp()
-    return stamp
+    return (when if when.tzinfo else when.replace(tzinfo=timezone.utc)).timestamp()

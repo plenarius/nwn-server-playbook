@@ -234,7 +234,7 @@ computer, against a real Discord server, in a private channel made for the test 
 to the API through an SSH tunnel to the control host:
 
 - the dashboard posted, then edited in place every minute (the same message, checked by its id), with online,
-  players, module, NWNX build and last restart, the time read from the game's log;
+  players, module, NWNX build and last restart;
 - the game stopped: the dashboard showed it offline 23 seconds later on one try and 59 on another, and online again
   with the new restart time after it started;
 - a new container, rebuilt from the template, carried on editing the same message from its volume;
@@ -259,6 +259,11 @@ Two things were tested with stand-ins, and you should know which:
 - **The bot in Coolify.** Coolify built and started it, but with a made-up token, since the real one stayed on my
   computer: Discord refused it, as it should. So the name and certificate in step 6, and a merged change
   redeploying the bot, were not tested for the bot; chapter 11 tests both for the website, the same way.
+
+After that test the operations API began reporting `started_at`, the time the game's container last started, in
+its status, and the dashboard's "Last restart" switched to it from a time read out of the game's log (it shows
+"unknown" when the API can't tell). That change is covered by the template's tests, written against the API's
+documented answer at its commit `7b05e20`, not by a second run in Discord.
 
 Not tested: real button presses and slash commands in Discord, the command sync against a fresh bot, and Redis's
 in-game countdown (chapter 9's).

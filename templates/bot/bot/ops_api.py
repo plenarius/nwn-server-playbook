@@ -34,6 +34,7 @@ class OpsApi:
         return await self._call("GET", "/api/v1/server/status")
 
     async def progress(self) -> dict:
+        """For the operations running right now (a deploy, an NWNX update); `status` has everything else."""
         return await self._call("GET", "/api/v1/server/progress?lines=1")
 
     async def restart(self, minutes: int, reason: str) -> dict:
