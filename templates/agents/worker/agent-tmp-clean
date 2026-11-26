@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# agent-tmp-clean: remove scratch folders of agent sessions that have finished. Run hourly by
+# agent-tmp-clean.timer, as root. Where /tmp is a tmpfs, that scratch is memory: left alone it grows until the
+# machine swaps. Chapter 15, tier 3.
+#
+# Settings in /etc/agent/tmp-clean.env (setup-worker.sh writes it):
+#   AGENT_USER  whose scratch it is
+#   SCRATCH     the scratch folder, with {uid} for the user's number (default /tmp/claude-{uid})
+#   KEEP_MIN    keep anything changed in the last this many minutes (default 120)
+# It also keeps every folder whose name appears in the command line of a process the agent user is running,
+# so a live session that has been quiet for hours keeps its scratch. DRY_RUN=1 only says what it would remove.
+set -euo pipefail
+[ -r /etc/agent/tmp-clean.env ] && . /etc/agent/tmp-clean.env
+: "${AGENT_USER:?set AGENT_USER}"
+uid=$(id -u "$AGENT_USER")
+base=${SCRATCH:-/tmp/claude-{uid\}}; base=${base//\{uid\}/$uid}
+keep=${KEEP_MIN:-120}
+[ -d "$base" ] || exit 0
+
+# Every word on the command lines of the agent user's processes: session ids, worktree names, paths.
+live=$(for p in $(pgrep -u "$AGENT_USER" || true); do
+  tr '\0' '\n' < "/proc/$p/cmdline" 2>/dev/null | tr ' =/' '\n\n\n' || true; done | sed '/^$/d' | sort -u)
+
+freed=0 n=0
+# Scratch is laid out as <base>/<project>/<session>/; a folder one level down is one session.
+while IFS= read -r -d '' d; do
+  name=$(basename "$d")
+  grep -qxF -- "$name" <<<"$live" && continue
+  [ -n "$(find "$d" -mmin "-$keep" -print -quit 2>/dev/null)" ] && continue
+  kb=$(du -sk "$d" | cut -f1)
+  if [ "${DRY_RUN:-0}" = 1 ]; then echo "would remove $d ($((kb / 1024)) MB)"; continue; fi
+  rm -rf -- "$d"; freed=$((freed + kb)); n=$((n + 1))
+done < <(find "$base" -mindepth 2 -maxdepth 2 -type d -print0)
+[ "${DRY_RUN:-0}" = 1 ] && exit 0
+find "$base" -mindepth 1 -maxdepth 1 -type d -empty -mmin "+$keep" -delete 2>/dev/null || true
+[ "$n" -eq 0 ] && exit 0
+echo "removed $n finished scratch folder(s), $((freed / 1024)) MB; /tmp now $(df -h --output=used /tmp | tail -1 | tr -d ' ') used"

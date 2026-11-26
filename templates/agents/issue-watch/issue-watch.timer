@@ -1,0 +1,10 @@
+# A user unit of the agent account: ~/.config/systemd/user/. Chapter 15, tier 3.
+[Unit]
+Description=Look for new issues every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target

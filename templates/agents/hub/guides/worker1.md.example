@@ -1,0 +1,6 @@
+## About this machine
+
+<!-- Copy to worker1.md (the machine's key in MACHINES) and write what an agent should know about this one
+     machine: what else runs here, what it is good for, what it is not for. -->
+- This is a shared machine: the game's build runners use it too, so keep heavy jobs to two at a time.
+- A full copy of the game's files is at `/srv/game`; models and textures read from there.

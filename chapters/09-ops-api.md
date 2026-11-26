@@ -143,7 +143,7 @@ Make four, each with `openssl rand -hex 32`, straight into your password manager
 | full | `OPS_API_KEY` | everything | nobody: it stays in the safe, for the day the others are lost |
 | admin | `OPS_API_ADMIN_KEY` | everything | you, and your own tools: stop, start, deploys, NWNX, releases |
 | team | `OPS_API_TEAM_KEY` | what the read key opens, plus the game's log, restart and cancelling a restart | your staff's bot or page |
-| read | `OPS_API_READ_KEY` | status, modules and progress (without the log's lines), nothing that changes the game | your website's status page (chapter 11) |
+| read | `OPS_API_READ_KEY` | status, modules, progress (without the log's lines) and, once `ONLINE_SQL` is set, who is online (`/server/online`, chapter 10's roster); nothing that changes the game | your website's status page (chapter 11) |
 
 The admin key opens as much as the full key does. Having two means either can be changed without the other: if the
 admin key leaks, you make a new one and restart the API, and the full key is still there. A key that is known but

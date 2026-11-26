@@ -1,0 +1,9 @@
+# A user unit of the agent account: ~/.config/systemd/user/. Started by issue-watch.timer. Chapter 15, tier 3.
+[Unit]
+Description=Triage new issues with an agent
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/issue-watch
+# One triage can take a while; the timer waits for it (OnUnitInactiveSec), so runs never overlap.
+TimeoutStartSec=4h

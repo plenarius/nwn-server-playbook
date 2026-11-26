@@ -1,0 +1,8 @@
+#!/bin/sh
+# self-destruct: deletes the server it runs on, through the provider's API. Installed by burst.sh with a
+# timer at the server's expiry. The token is in /run/burst (memory), put there by burst.sh over SSH.
+# Chapter 15, tier 3.
+id=$(curl -s http://169.254.169.254/hetzner/v1/metadata/instance-id)
+curl -s -X DELETE -H @/dev/stdin "https://api.hetzner.cloud/v1/servers/$id" <<H
+Authorization: Bearer $(cat /run/burst/token)
+H
