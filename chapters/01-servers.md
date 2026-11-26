@@ -1,8 +1,8 @@
 # Chapter 1. Choosing and preparing servers
 
-**Status:** tiers 1 and 2 are written and tested. Tier 1 is one machine; tier 2, further down, adds a second
-machine and a private network between the two. Tier 3 (a provider token for scripts, short-lived servers) is not
-written yet.
+**Status:** all three tiers are written and tested. Tier 1 is one machine; tier 2, further down, adds a second
+machine and a private network between the two; tier 3, at the end, makes short-lived servers from a script and adds
+a third site at another provider.
 
 ## What you learn
 
@@ -410,3 +410,299 @@ with tier 1:
 - a scan of the game host's public address from outside: only SSH answered.
 
 Not tested: three or more machines, machines at two different providers, and IPv6 inside the tunnel.
+
+---
+
+## Tier 3. Servers from a script, and a third site
+
+### What you learn
+
+By tier 3 you'll want machines that live for an hour: a big one to build all your haks at once, a copy of the
+game to try a risky change on, a clean machine to test a guide like this one. Renting those by hand works, but
+it's also how you find a forgotten 48-core server on next month's bill. This tier lets a script do it, with the
+guard rails built in. It also adds a third machine somewhere else, so that one provider having a bad day can't
+take everything with it.
+
+When you're done, you'll have:
+
+- a **project of its own** at Hetzner for short-lived servers, and a token that can't touch anything else;
+- a script that **creates a server with an expiry**, refuses one that would go over your **budget**, and only
+  ever deletes what it made;
+- **snapshots**: a prepared machine saved once and copied in a minute, without the two traps that come with it;
+- a **reaper** on an always-on machine that deletes any of those servers left running past its time;
+- an understanding of **legacy prices**, and why a machine on one should never be resized;
+- a **third site** at another provider, holding a copy of your backups and an outside watchdog.
+
+**Time:** about half an hour for the script and the reaper. The third site is tier 1's chapter again on one more
+machine, plus a few minutes for the private network. On the test, a new server answered the API in about
+12 seconds, a snapshot took 18 seconds and a server made from it answered SSH about 40 seconds later.
+
+### What Layonara does
+
+- **A separate project for every machine a script makes.** Our short-lived servers live in their own Hetzner
+  project, with a token for that project only. A script with a bug in it can't reach the live game host, because
+  its token doesn't know the game host exists.
+- **Labels on everything.** Each of those servers carries what it's for, its role, and an `expires` label with the
+  time it should be gone. Nothing is made without one.
+- **A ceiling on time and money.** At most 6 hours a server, and at most €10 for one session. Our biggest type, 48
+  dedicated cores, is €1.38 an hour in Ashburn and €1.16 in Helsinki. Hetzner bills every hour that has started,
+  so the expiry is set two minutes short of the last paid hour.
+- **Two ways to go, independent of each other.** Each server deletes itself at its expiry, and a reaper on one of
+  our always-on machines deletes any server in that project more than 5 minutes past its expiry, or without one,
+  and tells us on Discord. If one of the two fails, the other still does the job.
+- **A golden snapshot.** Our heavy servers start from a snapshot with the tools and repositories already on it, so
+  a session is ready in about two minutes. We keep the two newest; each is about 32 GB and costs about €0.46 a
+  month. Before one is saved, everything secret is removed and the disk is searched for every secret value, and
+  each copy gets a new machine id and host keys of its own.
+- **One machine on a legacy price.** Our game host is on an old price of €16.99 a month. The same type is listed at
+  €43.49 today, and a rescale or a bigger disk would move it to today's price for good. So we never resize it.
+- **Machines at two providers.** A machine at a second provider runs our websites and CI, and holds the second copy
+  of our backups. Our outside watchdog runs at Cloudflare, which is a third company again.
+
+### The human playbook
+
+#### 16. GENERIC. A project and a token of their own
+
+In Hetzner's console, create a **new project** (I call mine after what it's for, like "burst"), open it,
+**Security**, **API tokens**, **Generate API token**, with **Read & Write**. Hetzner shows the token once.
+
+Keep it in a file only you can read, on the computer you'll run the script from:
+
+```sh
+mkdir -p ~/.config/hcloud && chmod 700 ~/.config/hcloud
+read -rs TOKEN && printf '%s\n' "$TOKEN" > ~/.config/hcloud/playbook.token && unset TOKEN
+chmod 600 ~/.config/hcloud/playbook.token
+```
+
+The token is pasted, not shown, and never lands in your shell's history. In the same project, under **Security**,
+**SSH keys**, add your public key, and note the name you give it.
+
+Please don't use your live machines' project for this. A token for a project can do anything in that project,
+delete included. A project of its own is what keeps a scripting mistake small.
+
+#### 17. GENERIC. The script
+
+[`templates/provider/hcloud-servers.py`](../templates/provider/hcloud-servers.py) is one file, Python 3 alone, with
+nothing to install. Copy it somewhere on your path and check that it can talk to Hetzner:
+
+```sh
+install -m 755 templates/provider/hcloud-servers.py ~/.local/bin/hcloud-servers
+hcloud-servers price cx23 hel1
+hcloud-servers list
+```
+
+You should see `EUR 0.0088 an hour` (the list price on 2026-11-26, with VAT) and, for an empty project,
+`at most EUR 0.00 in all; budget EUR 5.00`.
+
+Everything it makes carries the label `managed-by=playbook`, and it refuses to delete, protect or reap anything
+without that label. I tried: asked to delete a server it hadn't made, it said `not touching burst: it has no
+managed-by=... label, so this script did not make it` and did nothing.
+
+#### 18. GENERIC. Make a server that knows when to go
+
+```sh
+export SSH_KEYS=my-key            # the name of your key in the project
+hcloud-servers create build-1 cx23 2 hel1
+```
+
+That's a server called `build-1`, of type `cx23`, for 2 hours, in Helsinki, with Ubuntu 26.04. It prints the
+address when the server is running, and before that a line like
+`created build-1 (cx23, hel1, image ubuntu-26.04), expires 19:56 UTC, at most EUR 0.02`.
+
+Before it creates anything, it adds up what could be spent: every server of its own that is running, each counted
+to its expiry, plus the new one. If that's over your budget (`BUDGET_EUR`, €5 unless you say otherwise), it
+refuses. On the test, asking for our biggest type for 6 hours:
+
+```text
+refused: this server could cost EUR 6.97, the ones running up to EUR 0.08, together over the budget of EUR 5.00 (BUDGET_EUR)
+```
+
+It also refuses anything longer than 6 hours (`MAX_HOURS`). Both numbers are yours to choose. Pick ones that
+would make you wince a little but not panic.
+
+When you're done with a server, don't wait for the reaper:
+
+```sh
+hcloud-servers delete build-1
+```
+
+#### 19. GENERIC. Snapshots, without the two traps
+
+A snapshot is a saved copy of a server's disk. You prepare a machine once, with Docker, your tools, perhaps a copy
+of the game, save it, and every new server made from it starts there instead of from a bare Ubuntu.
+
+Here's the part that caught me while testing this chapter. Tier 1 switches cloud-init off on every machine, and
+keeps the network settings it wrote. **Those settings name the machine's network card.** A server made from a
+snapshot of such a machine has a different card, so it **boots with no network at all**: no SSH, not even ping. And
+every copy of any snapshot shares the original's machine id, which some tools use to tell machines apart.
+
+[`templates/provider/prepare-snapshot.sh`](../templates/provider/prepare-snapshot.sh) handles both. Copy it to the
+machine you want to save (`scp templates/provider/prepare-snapshot.sh nwn@SERVER:host/`), and then, from your own
+computer:
+
+```sh
+ssh nwn@SERVER 'sudo ~/host/prepare-snapshot.sh before'
+hcloud-servers snapshot SERVER-NAME "builder with tools, 2026-11-26"
+ssh nwn@SERVER 'sudo ~/host/prepare-snapshot.sh after'
+```
+
+`before` switches cloud-init back on and clears the machine id, so each copy makes its own id, host keys and
+network on its first boot. `after` puts the original back exactly as it was. Please don't skip `after`: without
+it, the original makes itself new host keys at its next reboot, which is the very thing tier 1 switched
+cloud-init off to prevent. I checked both: with `after`, the original came back from a reboot with the same id and
+host key; without it, my SSH client refused the machine's new key.
+
+`snapshot` prints the snapshot's number. Make servers from it by giving that number as the image:
+
+```sh
+hcloud-servers create build-2 cx23 2 hel1 461330554
+ssh nwn@NEW_SERVER 'sudo ~/host/prepare-snapshot.sh after'
+```
+
+On a copy, `after` sees it's a different machine, keeps its new id and switches cloud-init off again, as tier 1
+does. Snapshots cost a little every month for as long as you keep them:
+
+```sh
+hcloud-servers images
+hcloud-servers delete-image 461330554
+```
+
+A snapshot of a fresh machine was 0.8 GB, about a cent a month; ours with all the tools on is 32 GB, about €0.46.
+
+**Never save a snapshot with a secret on it.** Anything on the disk is copied into every server you make from it.
+Put secrets onto a new server after it starts, over SSH, and keep them in memory (`/run`) where you can.
+
+#### 20. GENERIC. A reaper for forgotten servers
+
+The expiry label only says when a server should be gone. Something has to act on it, and it shouldn't be your
+laptop, which is asleep when it matters. Put the reaper on a machine that's always on, such as your control host.
+
+```sh
+scp templates/provider/hcloud-servers.py templates/provider/hcloud-reaper.* templates/provider/reaper.env.example nwn@CONTROL:
+ssh nwn@CONTROL 'sudo install -m 755 hcloud-servers.py /usr/local/bin/hcloud-servers && sudo install -d -m 700 /etc/hcloud-reaper && sudo install -m 600 reaper.env.example /etc/hcloud-reaper/reaper.env && sudo install -m 644 hcloud-reaper.service hcloud-reaper.timer /etc/systemd/system/ && sudo systemctl daemon-reload && echo installed'
+ssh nwn@CONTROL 'read -rs -p "Token: " t; echo; printf "%s\n" "$t" | sudo install -m 600 /dev/stdin /etc/hcloud-reaper/token && echo saved'
+ssh nwn@CONTROL 'sudo systemctl start hcloud-reaper.service; sudo journalctl -u hcloud-reaper -n 3 --no-pager -o cat; sudo systemctl enable --now hcloud-reaper.timer'
+```
+
+You should see `nothing to reap`. Every ten minutes it deletes any server with your label that is more than 5
+minutes past its expiry (`GRACE_MIN`), or has no expiry at all. A server you've protected (next step) it leaves
+alone and says so. To hear about each one, give it a Discord webhook: the two commented lines in the service say
+how.
+
+It runs as a throwaway user that systemd makes for each run, and gets the token handed to it by systemd; the
+file itself stays readable only by root.
+
+`hcloud-servers reap --dry-run` shows what it would delete, from anywhere you have the token.
+
+#### 21. GENERIC. Protect what must never go
+
+Hetzner can refuse to delete or rebuild a server until you take the protection off. Switch it on for every
+permanent machine: the server's page in the console, **Protection**, both switches. For the script's own servers,
+`hcloud-servers protect NAME on`. On the test, a delete of a protected server came back with
+`server deletion is protected` and nothing happened.
+
+Protection doesn't cover a rescale. That's what the next step is about.
+
+#### 22. LAYONARA-ONLY. Legacy prices: never resize that machine
+
+Providers change their prices now and then, and a server you already have usually keeps the price it had. That
+old price is called a **legacy price**. Ours is €16.99 a month for a type listed at €43.49 today.
+
+The catch is that the old price belongs to the server as it is. **A rescale to another type, even for an hour, or
+a bigger disk, moves it to today's price for good.** Going back to the old type afterwards gives you the old type
+at today's price. No warning in the console says so.
+
+So if you have a machine like that, write it down where everyone with access to the console will see it, and
+when it's too small one day, rent a new machine and move to it. Moving is tier 1's chapter and the backup chapter's
+restore, and it's an evening's work, not a crisis.
+
+If you're starting fresh, none of this applies to you yet. It's simply worth knowing before you resize a machine
+you've had for a few years.
+
+#### 23. ADAPT. A third site at another provider
+
+Change: the provider, the region.
+
+Everything so far lives at one provider. A provider having a bad day is rare, but when it happens, everything
+there goes at once: the game, the control host, and with them the backups on the control host and the watchdog
+that would have told you. A third machine at another company keeps two things outside that:
+
+- **a second copy of your backups**, so a lost account or a lost data centre doesn't take every copy with it;
+- **an outside watchdog**, so the alert about the outage doesn't depend on the outage.
+
+It doesn't need to be big: the test used the smallest type. Prepare it with tier 1's steps, then join it to the
+private network as a third peer. On the new machine (here `10.77.0.3`):
+
+```sh
+sudo ~/host/wireguard.sh init 10.77.0.3/24
+sudo ~/host/wireguard.sh peer control CONTROL_HOST_PUBLIC_KEY 10.77.0.1 CONTROL_HOST_PUBLIC_ADDRESS
+sudo ~/host/wireguard.sh peer game GAME_HOST_PUBLIC_KEY 10.77.0.2 GAME_HOST_PUBLIC_ADDRESS
+sudo ~/host/wireguard.sh up
+```
+
+and on each of the other two, one more `peer third THIRD_PUBLIC_KEY 10.77.0.3 THIRD_PUBLIC_ADDRESS` and `up`.
+Open UDP 51820 at each provider's firewall for the new machine's address too (step 11).
+
+Then, on the third machine:
+
+- the **backup copy**: chapter 12's second destination, or a pull over the private network;
+- the **watchdog**: chapter 13's, installed here instead of (or as well as) on the control host.
+
+**Distance is the cost.** On the test, the two machines in one location were about 1 ms apart and the third, in
+another country, about 35 ms. That's nothing for a nightly copy or a check every two minutes, and a lot for a
+service that talks to the game's database all day (step 9). Keep those on the game's side.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/01-servers-tier3.md`](../playbooks/01-servers-tier3.md) has these steps in
+a fixed shape it can follow. Making the project and the token, renting the third machine and any server that
+costs money stay with you, unless you give the agent a budget.
+
+### Lessons
+
+- **A token per project, and a project per purpose.** It's why our scripted servers can't touch the game host: not
+  care, just a token that doesn't reach it.
+- **Two independent ways to go.** Our servers delete themselves at their expiry, and a reaper elsewhere deletes
+  anything that didn't. A self-delete once ran two hours late because a timer had moved under it (2026-11-17);
+  since then it's set to a time on the clock, and the reaper was there anyway.
+- **Bill-shaped limits.** Hetzner bills each started hour, so our expiry is two minutes short of the last paid hour,
+  and the budget counts whole hours.
+- **Snapshots copy what you forgot.** The network file, the machine id and any secret on the disk all go into every
+  copy. I found the network one while writing this chapter, on a copy that never answered; our own image build
+  scans for secrets before every snapshot.
+- **Know which machine is on an old price,** and leave its size alone.
+
+### Tested
+
+On 2026-11-26, in a Hetzner project for short-lived servers, with servers of the smallest shared type (`cx23`) and
+Ubuntu 26.04, from a Linux workstation with Python 3.12:
+
+- `price`, `list`, and `create` in Helsinki and Falkenstein, with the labels and the expiry;
+- the cost guard refusing a 48-core server for 6 hours over a €5 budget, and a smaller one over a €0.10 budget;
+  `MAX_HOURS` refusing 7 hours;
+- `delete` and `protect` refusing a server without the label; a delete of a protected server refused by Hetzner;
+- `reap`: a server created for about a minute, left untouched by `--dry-run` with the 5-minute grace, then
+  deleted with the grace at 0 and its alert posted to a local stand-in for Discord; a server with its expiry
+  label removed by hand, deleted as `no expiry label`; step 20's commands as written on another server (as
+  root), whose timer then deleted an expired server by itself (grace set to 0 for the test) and posted its alert
+  through the two webhook lines;
+- snapshots: one of a fresh server, a server made from it (my marker file there, new host key, same machine id); a
+  snapshot of a machine with cloud-init switched off by tier 1's script: its copy never answered, twice (the
+  network file names the old card); then `prepare-snapshot.sh before`, the snapshot, `after`: the original kept its
+  id and host key across a reboot, the copy booted with network and its own id and key, and kept them across a
+  reboot after `after`; `images` and `delete-image`;
+- the third site: two servers in Helsinki and one in Falkenstein joined with `wireguard.sh` as three peers (ping
+  about 1 ms and 35 ms); a 50 MB file pulled over the private network to the third in about 2 seconds, checksum
+  equal; chapter 13's watchdog on the third, watching a page on the Helsinki game host; then both Helsinki servers
+  powered off through the API: the watchdog's one alert arrived 3 minutes and 16 seconds later, and its
+  "passing again" message 87 seconds after they were powered on; the private network came back by itself;
+
+The agent playbook's commands were run on the same servers, with `root` in place of the deploy user on the ones
+that hadn't been through tier 1. In all, twelve test servers, none for much over an hour, and seven small
+snapshots: about €0.12.
+
+Not tested: a third machine at a **different provider**. I had no account at a second one for the test, so a third
+Hetzner location stood in for it; WireGuard doesn't care which company a machine is at, but the latency will
+differ. Also not tested: a server's self-delete at expiry (chapter 15 covers that, with the burst servers), and a
+real rescale of a legacy-priced machine, for the obvious reason, and the reaper meeting a protected server past its
+expiry.

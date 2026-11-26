@@ -1,0 +1,21 @@
+# Self-hosted GitHub runners, one job each, in containers (chapter 8, tier 3).
+#   install: cp runners.sh /usr/local/sbin/ && cp nwn-runners.service /etc/systemd/system/
+#            systemctl daemon-reload && systemctl enable --now nwn-runners
+[Unit]
+Description=Self-hosted GitHub runners for the module (runners.sh)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/sbin/runners.sh
+# Removes the waiting runners at once, and lets a runner in the middle of a job finish it (up to 20 minutes).
+ExecStop=/usr/local/sbin/runners.sh stop
+TimeoutStopSec=1300
+Restart=always
+RestartSec=30
+# The test servers' own limits are on each slot (CPUS, MEMORY); this keeps the supervisor itself polite.
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

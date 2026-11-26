@@ -1,7 +1,6 @@
 # Chapter 6. Your module in git
 
-**Status:** tiers 1 and 2 are written and tested. Tier 3 (choosing which tests to run, test lanes) is not written
-yet.
+**Status:** tiers 1, 2 and 3 are written and tested.
 
 ## What you learn
 
@@ -616,8 +615,8 @@ git push
 ```
 
 On the test it took under a minute. The run's page shows the results in its summary, and under **Artifacts**,
-`test-logs` holds the same `tests/.run/` folder you get at home, kept for 14 days, failed runs included. That is the
-first place to look when a test fails on GitHub and not at home.
+`test-logs-lane-1` holds the same `tests/.run/` folder you get at home, kept for 14 days, failed runs included.
+That is the first place to look when a test fails on GitHub and not at home.
 
 To make a red test block a merge: in the repository's **Settings**, **Rules**, **Rulesets**, add a rule for the
 default branch that requires the status checks `compile` and `tests`. Rulesets are free on public repositories;
@@ -889,3 +888,327 @@ Not tested: content big enough for the cache's 10 GB limit, and a pull request f
 
 Not tested, from the first round: a real tester connecting to staging with a game
 client (the status query answered instead).
+
+## Tier 3. Choosing tests, lanes, and flaky tests kept honest
+
+### What you learn
+
+What to do when your test suite has grown from ten tests to a few hundred, and a run that took a minute now takes
+half an hour. Three things, each adopted on its own, in this order:
+
+- **Test selection.** A pull request runs only the tests its change can affect. Every night, and before every
+  release, everything runs anyway.
+- **Lanes.** The tests a run needs are dealt out to several servers at once, each with its own database, so the
+  wait is a third or a quarter of what it was.
+- **Flake control.** A test that fails is run once more on a fresh server. If it passes then, the run passes but
+  says so loudly, and writes it down. A test that keeps doing that goes on a short quarantine list with an issue
+  number, and a report every morning shows both, so a flaky test is never quietly forgotten.
+
+When you're done, you'll have:
+
+- `tests/tools/plan.py`, which reads a change and says which tests can reach it, and deals them into lanes;
+- the tests workflow running a pull request's tests only, in up to three lanes, with one job at the end, `tests`,
+  that is green only when every lane is;
+- the whole suite every night, by hand, and as the first step of every release;
+- a retry on a fresh server, and a record of every test that needed it;
+- `tests/quarantine.txt`, and a flake report on GitHub every morning.
+
+None of this changes how a test is written, or how `tests/run.sh` runs at home. It's all about choosing what to
+run, and where.
+
+**Time:** about half an hour, most of it reading what the planner says about your own module. Chapter 8's tier
+3 moves these runs onto your own machines; this section works on GitHub's machines as well.
+
+You need chapter 6's tier 2 (the tests on every pull request). Come here when the tests take long enough that
+people start to wait for them, or to skip them. Before then, running everything every time is simpler and right.
+
+### What Layonara does
+
+- **About five hundred tests, and a night to run them all.** The whole suite takes about 27 minutes of server time.
+  That is fine at night and too long for every push to a pull request.
+- **A pull request runs what its change can reach.** A planner reads the change and maps it to tests: through
+  includes, script names in strings, blueprints and dialogs that name a script, the game's spell table, and the
+  tables a database migration touches. A change to shared code, or to the test harness itself, runs everything; a
+  change that no test reaches still builds the module and starts it; a change outside the module runs nothing.
+- **Everything, every night.** The nightly run takes every test, slow soak tests included, and a label on a pull
+  request asks for everything before a risky merge.
+- **New tests are tried five times.** A test a pull request adds or changes runs five times in a row on a second
+  server, with no retry, before it is trusted. It's the cheapest moment to find out a test is flaky: before it is
+  anyone else's problem.
+- **One retry, and it's written down.** A test that fails (at most five of them) runs once more on a fresh
+  server. A pass there is "flaky": the run passes, warns, and writes a line to a flake log.
+- **Lanes, on our own machine.** Three lanes, each with a fixed share of the cores and memory, so a test run never
+  slows the rest of the machine. Chapter 8's tier 3 has the machine side.
+- **No quarantine list.** Our record is the retry's flake log and the five tries above. The quarantine list here
+  is my suggestion for a team that can't fix every flaky test the day it shows up, which is most teams.
+
+### The human playbook
+
+The files are in [`templates/module`](../templates/module): `tests/tools/plan.py`, `tests/tools/flake_report.py`,
+`tests/quarantine.txt`, the new `tests/run.sh`, `tests/tools/results.py` and `tests/nss/t_runner.nss`, and the
+workflows `.github/workflows/tests.yml` and `.github/workflows/flake-report.yml`.
+
+#### 24. GENERIC. Bring the new files in
+
+If you made your repository from the template after this section existed, you have everything. Otherwise:
+
+```sh
+cd ~/mymodule
+cp ~/nwn-server-playbook/templates/module/tests/run.sh tests/
+cp ~/nwn-server-playbook/templates/module/tests/nss/t_runner.nss tests/nss/
+cp ~/nwn-server-playbook/templates/module/tests/tools/{plan.py,results.py,flake_report.py} tests/tools/
+cp ~/nwn-server-playbook/templates/module/tests/quarantine.txt tests/
+cp ~/nwn-server-playbook/templates/module/.github/workflows/{tests.yml,flake-report.yml} .github/workflows/
+```
+
+If you changed your own `tests.yml` (your download address, your image), put those changes back into the new
+one: it has the same settings at the top, plus four more.
+
+Two things changed in how the runner reads `--filter`, and both are backwards-compatible: it now takes a list,
+separated by commas, and an entry that doesn't end in an underscore is one test's whole name:
+
+```sh
+tests/run.sh --filter t_bank_,t_math_add
+```
+
+runs every `t_bank_` test and the one test `t_math_add`. That is how the planner hands a lane its exact list.
+
+#### 25. GENERIC. See what a change reaches
+
+At home, on a branch with a change in it:
+
+```sh
+python3 tests/tools/plan.py --base main
+```
+
+On the test, with a small bank, a greeting and a shop beside the template's examples (18 tests), a change to the
+greeting's include file said:
+
+```
+select: 2 files changed: 3 of 18 tests reach them
+lane 1: t_greet_evening,t_greet_morning,t_greet_noon
+```
+
+What it does, in plain words. For every test it follows the `#include` lines, all the way down, and collects every
+word that appears inside quotes in those scripts: `ExecuteScript("shop_restock")`, a blueprint's name in
+`CreateObject`, a table's name in an SQL string, a tag. Then it takes the files your change touched, and grows
+that list through your module: a script that includes a changed script has changed too, and so has a blueprint,
+area or dialog whose fields name one. A test runs when anything it reaches is on that list.
+
+Four answers, and what each means:
+
+| Mode | When | What runs |
+|---|---|---|
+| `select` | the change reaches some tests | those tests |
+| `full` | the test harness, the workflows, `nasher.cfg` or `module.ifo` changed, or there is no base | every test |
+| `boot` | the module changed, but no test reaches the change | the module is built and started, no test runs |
+| `none` | nothing the test module is made of changed (notes, migrations, other folders) | nothing at all |
+
+`boot` matters more than it looks. A change to a script that only runs as the module loads, such as your own
+`mod_load`, can still stop the module from starting. Building and starting it costs twenty seconds and catches
+that.
+
+Try a few of your own changes and read what it says. It errs on the side of running a test: a word in quotes that
+only looks like a file's name runs that test too. On the test, the word `start` in one test's message ("the start
+area") made it run whenever the area named `start` changed, which happened to be right. What it can't see is a
+name your script puts together while it runs (`"bank_" + sKind`). The nightly run of everything is the net for
+that, and for anything else it misses.
+
+#### 26. GENERIC. Switch it on
+
+At the top of `tests.yml`:
+
+```yaml
+  TEST_SELECT: "true"
+  TEST_LANES: "3"
+  TEST_LANE_LEAST: "4"
+  TEST_RETRY: "true"
+```
+
+`TEST_SELECT` turns on step 25 for pull requests. Every other run, a push to `main`, a run by hand, the nightly
+run and the run inside every release, still takes every test. `TEST_LANES` and `TEST_LANE_LEAST` are step 27;
+`TEST_RETRY` is step 28. Each works without the others; I'd switch them on one at a time, in this order, and watch
+a few pull requests after each.
+
+The workflow now has three kinds of job:
+
+1. **plan**, which runs `plan.py` and shows its answer at the top of the run's page;
+2. **lane 1**, **lane 2**, **lane 3**: one job each, each with its own test server and database;
+3. **tests**, which gathers the lanes and is green only when all of them are, or when no lane was needed.
+
+Keep `tests` as the required check in your ruleset (chapter 6, step 17): it has the same name as the old single
+job, so nothing changes there. A pull request that changes only notes shows `plan` and `tests` green and the lanes
+skipped, which is exactly right, and it can merge.
+
+The nightly run is the `schedule` line at the top of `tests.yml`, at 03:17 UTC; change the time to your quiet
+hours. GitHub runs scheduled workflows only from the default branch, and in a public repository it stops them after
+60 days without any activity; a repository you work in never gets there.
+
+#### 27. GENERIC. Lanes
+
+`plan.py --lanes 3` deals the tests out like cards, so each lane gets the same number, give or take one. It never
+makes a lane of fewer than `TEST_LANE_LEAST` tests: starting a server takes about twelve seconds, so three lanes of
+one test each would spend most of their time starting. On the test, eighteen tests made three lanes of six, and a
+pull request that reached three tests made one lane.
+
+```sh
+python3 tests/tools/plan.py --lanes 3
+```
+
+```
+full: no base to compare with: every test
+lane 1: t_area_start,t_bank_overdraw,t_delay_async,t_greet_morning,t_math_add,t_shop_restock
+lane 2: t_bank_deposit,t_bank_withdraw,t_flaky_coin,t_greet_noon,t_math_mul,t_shop_twice
+lane 3: t_bank_negative,t_db_roundtrip,t_greet_evening,t_load_recorded,t_module_start,t_shop_untouched
+```
+
+To run one lane at home, exactly as the workflow does, give its list to `--filter`.
+
+Be honest with yourself about the numbers. On GitHub's machines, each lane is a whole job: a fresh machine, the
+tools installed, the image pulled. On the test that was about 25 seconds a lane before the first test ran, so for
+eighteen tests three lanes saved nothing. Lanes pay when the server time is minutes, not seconds: a suite that
+takes half an hour on one server takes about ten minutes on three. Each lane
+also uses its own GitHub minutes, which is one more reason chapter 8's tier 3 moves them to your own machine.
+
+A lane deals by name, not by how long each test takes. If one lane is always much slower, that's the next thing to
+improve, and the honest first step is to look at which tests are slow, not to make the dealing cleverer.
+
+#### 28. GENERIC. One retry, written down
+
+With `TEST_RETRY`, `run.sh --retry` runs again, once, on a fresh server and database, every test that failed, as
+long as there are at most five of them. More than five is not bad luck; that's something broken, and the run fails
+straight away. A crash of the server isn't retried either. What a second try can show:
+
+```
+failed: t_shop_untouched; running them once more, on a fresh server
+server ran for 11 s
+PASS  t_shop_restock
+PASS  t_shop_twice
+FLAKY  t_shop_untouched  (failed, then passed on a fresh server; the first time: no restock has happened yet: got 3, want 0; ...)
+3 passed (1 of them only on a second try), 0 failed, 0 skipped
+WARNING: 1 test(s) passed only on a second try. ...
+```
+
+That one was a real lesson in miniature. `t_shop_untouched` expected that no restock had happened yet. Run after
+the other two shop tests, it found three; run on its own, on a fresh server, it passed. So the run passed, which
+is right (the code is fine), and said FLAKY, which is also right (the test depends on what ran before it). The fix
+is in the test: count from where it starts, as `t_shop_restock` does.
+
+Every FLAKY result is written to `tests/.run/flakes.jsonl`: the test, why it failed the first time, the commit,
+the run and the lane. The workflow gathers every lane's lines into one artifact called `flakes`, kept for 30 days,
+and shows them on the run's page.
+
+Why retry at all, after chapter 8 said not to in tier 2? Because with a few hundred tests on shared machines, an
+occasional failure that has nothing to do with the change becomes a weekly event, and people learn to press
+**Re-run** without reading. A retry that is automatic, on a fresh server, limited to five tests, and written down
+every time keeps the run's colour honest and makes the flake visible, not hidden.
+
+#### 29. GENERIC. The quarantine list
+
+Sometimes a test is flaky and the fix isn't quick. Switching it off loses it; leaving it in makes everyone's
+runs red. The middle way is `tests/quarantine.txt`:
+
+```
+t_flaky_coin   # issue 1, 2026-11-26: fails one time in two
+```
+
+A test on the list still runs every time. When it fails, the run reports it as `QUARANTINED` and doesn't fail for
+it, and the failure is written down like a flaky one; when it passes, the line says so, as a reminder that it may
+be ready to come off:
+
+```
+QUARANTINED  t_flaky_coin  (failed, and is quarantined: the coin came up heads: got 1, want 0; ...)
+5 passed, 0 failed, 0 skipped, 1 failed in quarantine
+```
+
+My rules for the list, written at its top: one test a line, always with an issue number and the date, and short.
+A list that grows is a suite that is quietly shrinking. A pull request that adds or removes a line runs that test,
+so you see what the change means before it's merged.
+
+#### 30. GENERIC. The flake report
+
+`flake-report.yml` runs every morning at 04:47 UTC, after the nightly tests, and by hand from **Actions**. It
+downloads every `flakes` record of the last two weeks and writes a report on its run's page:
+
+```
+## Flake report: the last 14 days
+
+| Test | Flaky | Failed in quarantine | Last seen | Last reason |
+|---|---|---|---|---|
+| `t_flaky_coin` | 0 | 2 | 2026-11-26 | failed, and is quarantined: the coin came up heads: got 1, want 0; ... |
+| `t_shop_untouched` | 1 | 0 | 2026-11-26 | failed, then passed on a fresh server; the first time: no restock ... |
+
+### The quarantine list
+
+- `t_flaky_coin`, on the list for 0 days: still fails (2 times) (issue 1, 2026-11-26: fails one time in two)
+```
+
+It changes nothing; it is a page to read once a week, ideally with the person who looks after the tests. The same
+report at home, from a folder of records you downloaded:
+
+```sh
+python3 tests/tools/flake_report.py --days 14 records/
+```
+
+#### 31. LAYONARA-ONLY. Five tries for a new test, slow tests at night
+
+Two more ideas from our suite that I left out of the template. A test that a pull request adds or changes runs five
+times in a row on a second server before the pull request can merge, which finds most flaky tests before they
+exist for anyone else. And about eight long soak tests run only at night, listed in a file of their own. Both are
+worth adding once your suite is big enough to make you want them; the planner's `select` list is where the five
+tries would start.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/06-module-tier3.md`](../playbooks/06-module-tier3.md) has these steps in
+a fixed shape. It checks what the planner says before anything is switched on, stops and asks before it changes
+the workflow's settings, and never adds a test to the quarantine list or takes one off: that is always a person's
+call, with an issue number.
+
+### Lessons
+
+- **A hidden folder isn't uploaded.** `actions/upload-artifact` leaves out hidden files and folders unless it is
+  told `include-hidden-files: true`, and `tests/.run` starts with a dot. So from tier 2 on, the "test-logs"
+  artifact quietly held nothing, and it took the flake report, which reads the records in that folder, finding
+  none to notice. The workflow now says `include-hidden-files: true`, and the test now checks the record arrives,
+  not only that the step was green.
+- **A run by hand stopped the push it shared a branch with.** The tier 2 workflow stopped an older run whenever a
+  newer one started on the same branch. With a nightly run and runs by hand, that meant a run by hand on `main`
+  cancelled the push run beside it. Now only a pull request's older run is stopped, and runs of different kinds
+  each finish.
+- **A test that passes alone and fails in company isn't random.** The retry runs failed tests on their own, so a
+  test that depends on what ran before it shows up as FLAKY every time it shares a lane with the wrong neighbour.
+  Three of our own flaky tests were exactly this: they failed because of what an earlier test left behind. We
+  fixed them by making each test start from where things stand, never from a count it assumes, and then added a
+  check for anything a test leaves behind.
+- **The planner errs towards running.** A missed test is a bug that reaches players; an extra test is twenty
+  seconds. Every rule in `plan.py` that could go either way runs the test.
+
+### Tested
+
+On 2026-11-26, with the versions of tier 2 (nasher 1.2.2, neverwinter.nim 2.3.2, `nwnxee/unified:ed79330`, MariaDB
+11.8), in a private throwaway repository made from the module template with the demo module, a small bank, a
+greeting and a shop: 18 tests, one of them deliberately flaky and quarantined, one that depends on what ran before
+it.
+
+- `plan.py` at home on nine kinds of change: an include (3 tests), a script reached only by name in a string (2),
+  an area (2), the module's load script (2), one test (1), the quarantine list (the test named), notes only
+  (`none`), the test harness (`full`), and the NWNX include (3);
+- `run.sh` at home: a list filter of whole names and prefixes, `--boot-only`, a list of 600 names (9,010
+  characters) passed to the server in one go, `--retry` (a flaky test reported FLAKY, a broken one failing twice),
+  and a quarantined test (QUARANTINED, exit 0);
+- on GitHub's machines: a push running all 18 tests in three lanes of six, 1 minute 9 seconds in all, the
+  quarantined test failing without failing the run;
+- on our own runners (chapter 8, tier 3): a pull request changing the greeting (one lane, 3 tests), one changing
+  an area (one lane, 2 tests), and one changing only notes (no lanes, `tests` green); a run by hand of the shop
+  tests making `t_shop_untouched` FLAKY with its record in the `flakes` artifact; the nightly path (a run by hand
+  of everything) in three lanes; the flake report listing the flaky and the quarantined test;
+- the two lessons above, each found on the test and checked again after the fix;
+- the template's own settings (tier 2's behaviour) on a pull request: every test in one lane, no retry, and the
+  test that depends on what ran before it failing there, as it should without a retry;
+- this chapter's agent playbook: the preconditions, steps 2, 4 and 5, and Verify as written, against the same
+  repository (steps 1 and 3 are what made that repository).
+
+Not tested: a suite of hundreds of tests (the timings above are for 18); the `schedule` itself firing at night
+(the run by hand takes the same path); and a pull request from a fork, which runs on GitHub's machines with the
+same workflow (chapter 8, tier 3).

@@ -1,0 +1,27 @@
+# /etc/nwn-runners/runners.conf: settings for runners.sh (chapter 8, tier 3). Owned by root, mode 600.
+
+# The repository the runners work for.
+REPO=you/mymodule
+# A fine-grained token for that one repository, with "Administration: Read and write" (that is the permission
+# GitHub asks for to register runners). It can change the repository's settings, so it lives here, readable by root
+# only, and never reaches a job: each runner gets a one-time registration instead.
+TOKEN_FILE=/etc/nwn-runners/token
+# How many runners wait at once: one job each, at the same time. A test lane is one job.
+SLOTS=3
+# Labels a workflow picks these runners by (the repository variable CI_RUNNER: ["self-hosted","nwn"]).
+LABELS=nwn
+# Each slot's own Docker (the test server and its database) is held to this share of the machine. With SLOTS
+# slots, leave room for what else this machine runs: Coolify, the website.
+CPUS=1.5
+MEMORY=3g
+# Content downloaded from your download address, shared by every slot, one folder per version.
+CACHE_DIR=/srv/nwn-runners/cache
+# Only for picture previews: your own installed copy of the game, read only (chapter 8, tier 3, step 8).
+GAME_DIR=
+# The runner image you built from the Dockerfile, and Docker in Docker.
+IMAGE=nwn-runner:2.338.2
+DIND_IMAGE=docker:29.9.3-dind
+# GitHub's API. Only for GitHub Enterprise Server: https://YOUR-SERVER/api/v3
+GITHUB_API=https://api.github.com
+# When the service stops, a runner in the middle of a job may finish it for up to this many seconds.
+DRAIN_SECONDS=1200

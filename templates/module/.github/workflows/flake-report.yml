@@ -1,0 +1,46 @@
+name: Flake report
+
+# Every morning, after the nightly tests: which tests were flaky or failed in quarantine over the last two weeks,
+# and the state of the quarantine list, on this run's page (chapter 6, tier 3). It reads the "flakes" records the
+# Tests workflow keeps, and changes nothing.
+on:
+  schedule:
+    - cron: "47 4 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: How many days to look back
+        default: "14"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  report:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"ubuntu-latest"') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the records
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DAYS: ${{ inputs.days || '14' }}
+        run: |
+          since=$(date -u -d "-$DAYS days" +%Y-%m-%dT%H:%M:%SZ)
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=flakes&per_page=100" --paginate \
+            -q ".artifacts[] | select(.expired | not) | select(.created_at >= \"$since\") | .id" |
+            while read -r id; do
+              mkdir -p "records/$id"
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "records/$id.zip"
+              unzip -qo "records/$id.zip" -d "records/$id" && rm "records/$id.zip"
+            done
+          echo "$(ls records 2>/dev/null | wc -l) runs with records"
+
+      - name: The report
+        env:
+          DAYS: ${{ inputs.days || '14' }}
+        run: |
+          mkdir -p records
+          python3 tests/tools/flake_report.py --days "$DAYS" records | tee -a "$GITHUB_STEP_SUMMARY"

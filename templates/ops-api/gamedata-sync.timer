@@ -1,0 +1,12 @@
+# Every ten minutes, and soon after the control host starts (chapter 9, tier 3). A run with nothing new takes a
+# few seconds and copies nothing.
+[Unit]
+Description=Copy the game's files for the operations API, every ten minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

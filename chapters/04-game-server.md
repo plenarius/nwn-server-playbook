@@ -1,7 +1,7 @@
 # Chapter 4. The game server and NWNX
 
-**Status:** tiers 1 and 2 are written and tested. Tier 1 runs the game with plain Docker Compose; tier 2, further
-down, hands it over to Coolify. Tier 3 (your own plugins, your own image) is not written yet.
+**Status:** tiers 1, 2 and 3 are written and tested. Tier 1 runs the game with plain Docker Compose; tier 2, further
+down, hands it over to Coolify; tier 3, at the end, builds your own NWNX image with your own plugin.
 
 ## What you learn
 
@@ -235,7 +235,8 @@ together. This guide's later tiers cover it.
 
 We build our image from a fork because our module needs plugins that only exist there. A fork is a commitment:
 every upstream change has to be merged in, and the image has to be built and published. Please don't start with
-one. If the day comes when you need something NWNX doesn't do, tier 3 shows how we keep ours.
+one. If the day comes when you need something NWNX doesn't do, tier 3, at the end of this chapter, shows how we keep
+ours.
 
 ## The agent playbook
 
@@ -484,3 +485,264 @@ labels quoted here were read from the dashboard on the day.
 
 Not tested: pasting into **Developer View** by hand, Redis in the service, and a game with players during the
 switch.
+
+---
+
+## Tier 3. Your own NWNX image
+
+### What you learn
+
+How to build NWNX yourself, with a plugin of your own in it, and run your game on the result. NWNX is open source,
+and adding a plugin is an ordinary thing to do: it's how most of NWNX's own plugins started. All you need is a copy
+of its source on GitHub, a workflow that builds it, and a place to keep the images.
+
+When you're done, you'll have:
+
+- your copy of NWNX on GitHub, with an example plugin that answers from NWScript;
+- an image built by GitHub Actions on every merge, kept on GitHub's container registry (GHCR);
+- two tags for each build: one named after the commit, which is pushed once and never replaced, and one that moves
+  with each new build;
+- your game pinned to a commit tag, and a clear idea of when the moving tag is the better choice.
+
+**Time:** about an hour, of which the first build is ten minutes. Later builds take three.
+
+### What Layonara does
+
+- **Our own copy of NWNX**, public on GitHub, with four plugins of our own beside upstream's: one for our game
+  rules, one that lists the looks an item can take, one for chess against an engine, and one that plays a fake
+  player for our tests. Our module can't run without them.
+- **Game rules in one plugin, everything else upstream.** The plugin with our game rules stays ours. Anything another
+  server could use goes to upstream NWNX as a pull request, and many of our fixes are upstream now. The fewer
+  differences we carry, the easier each upstream merge is.
+- **A build on every merge**, in about nine minutes on GitHub's own machines: compile, then an image on GHCR.
+- **A tag per commit, and a moving one.** Every build is tagged with its commit, and those tags are our whole
+  history of builds: going back is naming an older one. The game follows the moving tag, and chapter 9's NWNX update
+  is how a new build reaches it.
+
+### The human playbook
+
+You need tier 1 of this chapter. Tier 2 and chapter 9 are optional; step 29 says where they fit. The files are in
+[`templates/nwnx`](../templates/nwnx).
+
+`GAME` is the game host, and `you/unified` stands for your copy on GitHub.
+
+#### 22. GENERIC. Decide what goes in a plugin of your own
+
+A plugin of your own is the right home for anything specific to your world: your game rules, a system your module
+leans on. If it would help any server, it belongs upstream instead: open a pull request on
+[nwnxee/unified](https://github.com/nwnxee/unified), and when it's merged you no longer carry it. Bug fixes are
+always worth sending.
+
+Keeping your own code in its own folder under `Plugins/` means an upstream merge almost never touches your files.
+Patches to upstream's own plugins are the ones that cost you work at every merge, so keep them few.
+
+#### 23. ADAPT. Make your copy of NWNX
+
+Change: whether it's public.
+
+On GitHub, **Fork** [nwnxee/unified](https://github.com/nwnxee/unified). A fork of a public repository is public.
+If you'd like yours private, make a new private repository instead and push upstream's source into it:
+
+```sh
+git clone https://github.com/nwnxee/unified.git && cd unified
+git remote add mine git@github.com:you/unified.git
+```
+
+(you'll push in step 26). Then take out upstream's own workflows. They publish to upstream's accounts, need
+secrets you don't have, and would fail on every push:
+
+```sh
+git rm -q .github/workflows/*.yml
+```
+
+#### 24. ADAPT. Add your plugin
+
+Change: the plugin's name, from `Hello` to yours.
+
+The example is the smallest plugin that does something you can see: `NWNX_Hello_Greet("Tester")` returns `Hello,
+Tester, from your own NWNX plugin`. Copy it in:
+
+```sh
+cp -r ~/nwn-server-playbook/templates/nwnx/Plugins/Hello Plugins/
+```
+
+Three files make a plugin:
+
+- `CMakeLists.txt` names the plugin and its source files. The build finds every folder under `Plugins/` by itself.
+- `Hello.cpp` holds the functions. Each `NWNX_EXPORT ArgumentStack Name(ArgumentStack&& args)` is a function your
+  scripts can call. `Config::Get` reads a setting: here `NWNX_HELLO_GREETING`, which changes the first word.
+- `NWScript/nwnx_hello.nss` is what your scripts include. It pushes the arguments, calls the plugin by name, and
+  pops the answer.
+
+Upstream's plugins are the best examples of everything else: hooking the server, events, objects. `Util` and
+`Reveal` are short ones to start with.
+
+#### 25. GENERIC. Add the workflow
+
+```sh
+mkdir -p .github/workflows
+cp ~/nwn-server-playbook/templates/nwnx/image.yml .github/workflows/image.yml
+cp ~/nwn-server-playbook/templates/nwnx/image.Dockerfile image.Dockerfile
+git add -A && git commit -m "Our own image workflow and our plugin"
+```
+
+[`image.yml`](../templates/nwnx/image.yml) compiles NWNX in upstream's builder image, pinned by its digest so
+nothing changes under you. It keeps the compiler's cache between runs, which is what takes a build from ten minutes
+to two. A pull request only compiles. A merge to `master` also packs the binaries, checks that the commit's tag isn't
+in the registry yet, and builds the image from [`image.Dockerfile`](../templates/nwnx/image.Dockerfile): upstream's
+base image (the game server and the libraries the plugins need, without NWNX) plus your build, made the same way
+upstream makes its own image.
+
+It needs no secrets. GitHub gives each run a short-lived token that may write packages to your own account.
+
+The one line to keep current is `BASE_IMAGE`. Upstream rebuilds its base image about once a month, tagged by
+commit; use the newest one for your game's build, listed on
+[Docker Hub](https://hub.docker.com/r/nwnxee/nwnxee-base/tags).
+
+#### 26. GENERIC. Push, and watch the first build
+
+```sh
+git push mine master
+gh run watch -R you/unified
+```
+
+The first run took 11 minutes on the test, nearly all of it compiling from nothing; later runs took two to three.
+When it's green, the run's summary lists the two tags it pushed, such as `ghcr.io/you/unified:4f54529` and
+`ghcr.io/you/unified:build8193.37.17`.
+
+If a push doesn't start a run, which happened on the test in a brand-new repository's first minutes, start one by hand:
+**Actions**, **NWNX image**, **Run workflow**, or `gh workflow run image.yml -R you/unified`.
+
+#### 27. ADAPT. Let the game host pull it
+
+Change: nothing, if your package is public.
+
+A package from a private repository is private too. To pull it, the game host needs a GitHub token that can only
+read packages: on GitHub, **Settings**, **Developer settings**, **Personal access tokens**, **Tokens (classic)**,
+with just **read:packages** ticked. Then:
+
+```sh
+ssh -t nwn@GAME 'docker login ghcr.io -u YOUR_GITHUB_NAME'
+```
+
+and paste the token as the password. Docker keeps it in `~/.docker/config.json` on the game host, readable only by
+`nwn`, but not encrypted, which is why it should be a token that can do nothing else.
+
+Or make the package public: on GitHub, your profile, **Packages**, the package, **Package settings**, **Change
+visibility**. If you use chapter 9's NWNX update, public is simpler: the API asks the registry for the newest
+build without logging in.
+
+#### 28. GENERIC. Run the game on it, pinned
+
+In `~/game/.env` on the game host, name the image by its **commit** tag, and switch your plugin on:
+
+```
+NWNX_IMAGE=ghcr.io/you/unified:4f54529
+NWNX_HELLO_SKIP=n
+```
+
+Give the server your plugin's script file, the same way chapter 5 did for the SQL plugin:
+
+```sh
+scp Plugins/Hello/NWScript/nwnx_hello.nss nwn@GAME:
+ssh nwn@GAME 'cd game && sudo cp ~/nwnx_hello.nss home/development/ && rm ~/nwnx_hello.nss && docker compose up -d && sleep 20 && docker compose logs nwserver | grep "Loaded plugin"'
+```
+
+You should see `NWNX_Hello.so` among the loaded plugins. Then ask it something from NWScript, in the console as in
+chapter 5's step 6:
+
+```
+evalx WriteTimestampedLogEntry(NWNX_Hello_Greet("Tester"));
+```
+
+The server's log answers `Hello, Tester, from your own NWNX plugin`. That line came from your C++, called by a
+script, inside your own image. In your module, `#include "nwnx_hello"` does the same for every script that needs
+it; keep the file in your module's source beside the other `nwnx_*.nss` files, from the same commit as the image.
+
+#### 29. GENERIC. Two tags, and when to use which
+
+Every build pushes both:
+
+- **The commit tag**, such as `4f54529`, names exactly one build, forever. The workflow refuses to push it twice:
+  run it again on the same commit and it stops with `... is already in the registry. Commit tags are pushed once
+  and never replaced.` before anything is built or pushed. So the name in your settings always means the same
+  binaries, and going back is naming an older commit.
+- **The moving tag**, such as `build8193.37.17`, is replaced by every new build.
+
+Which one goes in the game's `NWNX_IMAGE`:
+
+- **Without chapter 9's API**, use the commit tag. The version changes when you edit that line, exactly as in step
+  11, and the line itself is your record of what runs.
+- **With chapter 9's API**, use the moving tag in both the game and the API, as chapter 9's step 13 explains. The
+  API's NWNX update pulls the moving tag and restarts the game, and its status shows which commit runs, because the
+  workflow stamps each image with its commit (the `org.opencontainers.image.revision` label). Nothing moves the
+  game but that update or a `docker pull` by hand.
+
+Either way, keep the commit tags. They're the only history of your builds, so don't delete old package versions you
+might want to go back to. To go back from the moving tag, put an older commit tag in the game's setting for a while,
+as chapter 9 says.
+
+#### 30. GENERIC. Keeping up with upstream
+
+Every so often, and always when the game itself has a new build:
+
+```sh
+git fetch https://github.com/nwnxee/unified.git master && git merge FETCH_HEAD
+```
+
+in a branch, with a pull request, so the workflow compiles it first. If upstream's merge touches a workflow file
+again, keep yours and remove theirs. For a new game build, also change `BASE_IMAGE` to upstream's base image for that
+build. The moving tag's name follows the game build by itself, read from `CMakeLists.txt`.
+
+#### 31. LAYONARA-ONLY. Four plugins
+
+Our copy carries four plugins and a few patches to upstream's, and the plugin with our game rules will stay ours.
+Please don't take our game rules as advice for yours: the numbers in them are tuned for one world.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/04-game-server-tier3.md`](../playbooks/04-game-server-tier3.md) has these
+steps in a fixed shape it can follow. Making the repository, the registry token and any restart of the live game
+stay with you.
+
+### Lessons
+
+- **A tag that can change isn't a record.** We once released a module whose scripts needed a plugin the live image
+  didn't have yet (tier 1's first lesson, 2026-11-14). A commit tag that is never replaced is the smallest fix:
+  the name says exactly which build runs, and the workflow makes sure it always will.
+- **Keep your code in your own folder.** Upstream merges are easy when they never touch your files, and painful when
+  they touch the same lines as your patches. That's why our game rules live in one plugin, and why our fixes to
+  upstream's plugins go upstream.
+- **Build on the same base upstream does.** I first built the image on top of upstream's finished image and swapped
+  NWNX inside it. It worked, but it was 330 MB bigger, because the old NWNX stayed in the image's lower layer.
+  Upstream's base image, without NWNX, gives the same image upstream ships.
+- **A new repository's first pushes may not start a run.** On the test, GitHub took a few minutes to notice the
+  workflow in a repository that had just received all of NWNX's history, and two pushes in that time started no
+  run. Starting one by hand worked, and pushes after that started runs by themselves.
+
+### Tested
+
+On 2026-11-26, with upstream NWNX at commit `5af5459` (game build 8193.37.17), in a private GitHub repository
+holding upstream's source, the example plugin and the workflow, and a game host in the state tier 1 leaves it (a
+fresh Hetzner cloud server of the smallest shared type, with the database and a module):
+
+- the first build: 11 minutes (compiling 9 minutes 48 seconds, the image a minute), and both tags pushed to a private
+  GHCR package;
+- the game host logging in with a read-only package token, pulling the image by its commit tag, and the game
+  running on it, healthy, with `NWNX_Hello.so` loaded;
+- the plugin answering from NWScript through `evalx`, and `NWNX_HELLO_GREETING` changing its answer to `Well met,
+  Tester, ...`;
+- the same commit built again, twice: once by re-running a finished run, once by starting a run by hand just after
+  a merge's own run; both times the workflow refused before pushing, and the tag still pointed at the first build;
+- a second commit: a new commit tag, the moving tag moved to it, the first commit tag unchanged, and the game still
+  on its pinned build until its setting changed; moving the game to the new build and back took 9 seconds;
+- the image built on upstream's base image, in 2 minutes 18 seconds: 1.15 GB, against 1.13 GB for upstream's own
+  image, with the plugin loaded and answering; the game ran on it, healthy.
+
+- the agent playbook as written, on a second fresh private repository: its first push started a run by itself six
+  minutes later, the build took 10 minutes, and the game came up on the new commit tag with the plugin answering;
+  then its roll back. Its first try found two faults, both fixed: it didn't wait long enough for a new repository's
+  first run, and it changed the game's settings before checking that the image had arrived.
+
+Not tested: chapter 9's NWNX update with this image (the API's update itself is tested in chapter 9), a public
+fork made with GitHub's **Fork** button, an upstream merge into the copy, and a new game build.

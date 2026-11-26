@@ -1,0 +1,11 @@
+# Runs hcloud-reaper.service every ten minutes. Chapter 1, tier 3.
+[Unit]
+Description=Look for forgotten short-lived servers every ten minutes
+
+[Timer]
+OnCalendar=*:0/10
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
