@@ -1,0 +1,10 @@
+# Lets machines on your private network reach the database (chapter 5, tier 3). Used together with compose.yaml and
+# compose.db.yaml: add it to the COMPOSE_FILE line in .env. In Coolify, add the same "ports" lines to the mariadb
+# service instead.
+#
+# The port is published on the game host's private address only. On its public address it does not exist, and
+# chapter 1's step 14 makes Docker wait for that address at boot.
+services:
+  mariadb:
+    ports:
+      - "${DB_PRIVATE_ADDRESS:?set DB_PRIVATE_ADDRESS in .env, the game host's private address}:3306:3306"

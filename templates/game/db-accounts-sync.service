@@ -1,0 +1,11 @@
+# Keeps the read-only accounts' rights in step with the game's tables (chapter 5, tier 3).
+# Change User and WorkingDirectory if your deploy user or game folder is different.
+[Unit]
+Description=Bring the database readers' rights in step with the tables
+After=docker.service
+
+[Service]
+Type=oneshot
+User=nwn
+WorkingDirectory=/home/nwn/game
+ExecStart=/home/nwn/game/db-accounts.sh sync

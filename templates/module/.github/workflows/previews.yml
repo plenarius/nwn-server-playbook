@@ -1,0 +1,71 @@
+name: Previews
+
+# Pictures of the areas a pull request changes, before and after, in one comment on the pull request (chapter 8,
+# tier 3). Drawn with nwn-bake (https://github.com/plenarius/nwn-bake), which needs your own installed copy of
+# the game, so this runs only on your own runners (CI_RUNNER), where runners.sh gives each job the game folder
+# read-only as NWN_GAME_DIR. It never fails a pull request: no game, no pictures, and a line in the run's log.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths: ["src/are/**", "src/git/**", "src/gic/**"]
+
+# One at a time: each run adds a commit to the same branch.
+concurrency:
+  group: previews
+  cancel-in-progress: false
+
+env:
+  NWN_BAKE_VERSION: "0.7.1"
+  NWN_BAKE_SHA256: 8f4b6937923817b0fe7cbe31a4e00250bcde243ed75468f97d89a56be93d3282
+
+jobs:
+  draw:
+    # Never for a pull request from a fork; and only where CI_RUNNER says your runners are.
+    if: >-
+      vars.CI_RUNNER != '' && github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON(vars.CI_RUNNER) }}
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install nwn-bake
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP"
+          gh release download "v$NWN_BAKE_VERSION" -R plenarius/nwn-bake -p "nwn-bake-$NWN_BAKE_VERSION-linux-x86_64.tar.gz"
+          echo "$NWN_BAKE_SHA256  nwn-bake-$NWN_BAKE_VERSION-linux-x86_64.tar.gz" | sha256sum -c -
+          tar xzf "nwn-bake-$NWN_BAKE_VERSION-linux-x86_64.tar.gz"
+          echo "$RUNNER_TEMP/nwn-bake-$NWN_BAKE_VERSION-linux-x86_64" >> "$GITHUB_PATH"
+
+      - name: Draw the changed areas
+        run: |
+          [ -f "${NWN_GAME_DIR:-/nonexistent}/data/nwn_base.key" ] ||
+            { echo "::warning::no game on this runner (NWN_GAME_DIR): no pictures"; exit 0; }
+          tools/previews.sh draw "${{ github.event.pull_request.base.sha }}" HEAD "$RUNNER_TEMP/previews"
+          echo "ready=true" >> "$GITHUB_ENV"
+
+      - name: Post them on the pull request
+        if: env.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_SHA: ${{ github.event.pull_request.head.sha }}
+        run: tools/previews.sh publish "${{ github.event.pull_request.number }}" "$RUNNER_TEMP/previews"
+
+  # A closed pull request's pictures come off the branch.
+  forget:
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/previews.sh forget "${{ github.event.pull_request.number }}"
