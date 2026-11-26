@@ -1,0 +1,4 @@
+# What nasher and the compiler make. None of it belongs in git.
+.nasher/
+*.mod
+*.ncs
