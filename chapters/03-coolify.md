@@ -1,7 +1,7 @@
 # Chapter 3. Coolify
 
-**Status:** tier 2 is written and tested. Tier 1 doesn't use Coolify: plain Docker Compose (chapter 4) is all one
-machine needs. Tier 3 (a helper for busy deploy queues) is not written yet.
+**Status:** tiers 2 and 3 are written and tested. Tier 1 doesn't use Coolify: plain Docker Compose (chapter 4) is
+all one machine needs. Tier 3, at the end, is about busy deploy queues and a faster proxy repair.
 
 ## What you learn
 
@@ -268,7 +268,7 @@ and delete it when it's done.
 Our dashboard has its own name with HTTPS, so GitHub's webhooks travel encrypted, and we reach it without an SSH
 tunnel. We also run a small helper that cancels queued deploys made pointless by a newer one: after a burst of nine
 merges in half an hour, each deploy waited 15 to 18 minutes in line. A new server won't see that kind of queue for
-a long while, which is why it belongs to tier 3.
+a long while, which is why it belongs to tier 3, at the end of this chapter.
 
 ## The agent playbook
 
@@ -326,3 +326,188 @@ proxy was done in the dashboard itself.
 
 Not tested: clicking through the **New Server** and new application forms, Coolify's dashboard at its own name with
 HTTPS, and other versions of Coolify.
+
+---
+
+## Tier 3. Busy queues, and a proxy repaired at once
+
+### What you learn
+
+What happens when many people merge on the same afternoon, and how to keep the newest change from waiting behind
+older ones. Also a faster trigger for chapter 3's proxy check, so a Docker upgrade is repaired in seconds instead of
+at the next minute.
+
+When you're done, you'll have:
+
+- every application set to skip a queued deploy once a newer push for it arrives;
+- if your Coolify can't do that itself, a small helper that does it, with a token that can only read and deploy;
+- the proxy check also running 20 seconds after every Docker start, on every machine with Coolify's proxy.
+
+**Time:** ten minutes for the setting, twenty with the helper.
+
+### What Layonara does
+
+- **Lots of merges.** Several people and a few AI agents merge to the same repositories, and Coolify builds one
+  deploy of an application at a time. On 2026-11-08 nine website merges landed in half an hour. Each build took
+  about four minutes, but each merge waited 15 to 18 minutes to go live, behind builds of commits that were already
+  out of date.
+- **A helper that skips them.** Every 20 seconds it looks at Coolify's queue and cancels each queued deploy that a
+  newer queued deploy of the same application replaces. Coolify 4.7.5 has the same rule built in, and we keep both:
+  they cancel exactly the same deploys.
+- **The proxy check runs from Docker's start** on all four of our machines, 20 seconds after Docker comes up, so a
+  package upgrade that renews Docker's socket is repaired before anyone notices.
+
+### The human playbook
+
+You need everything from tier 2 of this chapter. The files are in [`templates/coolify`](../templates/coolify).
+
+#### 14. GENERIC. Know why a queue forms
+
+Each merge sends GitHub's webhook, and each webhook makes one deploy. Coolify builds one deploy of an application
+at a time and queues the rest, in order. But the newest commit already holds everything the older ones did, so
+building the older ones first only delays it. With three merges a few seconds apart and a build of a minute and a
+half, the last one goes live after three builds instead of two; with nine merges and four-minute builds, it's the
+quarter of an hour we saw.
+
+Only **queued** deploys are worth cancelling. One that is already building is left to finish: it's nearly done,
+and a build cut off halfway is just a wasted one.
+
+#### 15. GENERIC. Switch on Coolify's own skip, on every application
+
+On Coolify 4.7.5 each application has this rule built in. Open the application, **Advanced**, and in the
+**Deployment** part look at **Queued webhook deployments**. It should say **Cancel when a newer push arrives**. It
+did by default for every application on the test, but please check each one, because it's per application.
+
+On the test, with three pushes five seconds apart, the middle deploy was cancelled the moment the third arrived,
+and its log says `Deployment cancelled: the newer deployment ... replaces it`. Deploys you start by hand, through the
+API, as a restart or as a rollback are never cancelled.
+
+Beside it, **Building webhook deployments** can also stop a deploy that is still building when a newer push
+arrives. I leave it at **Let the build finish**, for the reason in step 14.
+
+If your Coolify's **Advanced** page has no such setting, step 16 does the same job from outside.
+
+#### 16. ADAPT. Or, a helper that does the same
+
+Change: nothing, unless your control host isn't where Coolify runs.
+
+[`templates/coolify/skip-superseded.py`](../templates/coolify/skip-superseded.py) asks Coolify for its queue every
+20 seconds and cancels a queued deploy only when all of these hold: it was started by a push webhook, it's for the
+application's own branch (not a pull request preview), it isn't a restart, rollback or forced rebuild, and a newer
+deploy of the same kind is queued for the same application. It uses Python's standard library only, and runs as a
+throwaway system user that can't write anywhere.
+
+1. **Its own token.** In the dashboard: **Keys & Tokens**, **API Tokens**, **New Token**, a description such as
+   `skip-superseded`, and under **Permissions** tick only **read** and **deploy**. Copy the token.
+2. **Install it**, from this repository on your own computer:
+
+   ```sh
+   scp templates/coolify/skip-superseded.* nwn@CONTROL:
+   ssh -t nwn@CONTROL 'read -rsp "Token: " t; echo; printf "COOLIFY_URL=http://127.0.0.1:8000\nCOOLIFY_TOKEN='"'"'%s'"'"'\n" "$t" | sudo sh -c "umask 077; cat > /etc/coolify-skip-superseded.env" &&
+     sudo install -m 755 skip-superseded.py /usr/local/sbin/coolify-skip-superseded &&
+     sudo install -m 644 skip-superseded.service /etc/systemd/system/coolify-skip-superseded.service &&
+     sudo install -m 644 skip-superseded.timer /etc/systemd/system/coolify-skip-superseded.timer &&
+     sudo systemctl daemon-reload && sudo systemctl enable --now coolify-skip-superseded.timer && rm skip-superseded.*'
+   ```
+
+   Paste the token at the prompt; it isn't shown. The quotes around it in the file matter: a Coolify token
+   contains a `|`, and without them the file can't be read by a shell.
+3. **See what it would do**, without cancelling anything:
+
+   ```sh
+   ssh nwn@CONTROL 'sudo sh -c "set -a; . /etc/coolify-skip-superseded.env; /usr/local/sbin/coolify-skip-superseded --dry-run"'
+   ```
+
+   With an empty queue it prints nothing. During a burst it prints `would cancel <app> <commit>, ... superseded by
+   <commit>`.
+4. **What it did**, afterwards:
+
+   ```sh
+   ssh nwn@CONTROL 'sudo journalctl -t coolify-skip-superseded --since today'
+   ```
+
+It writes a line only when it cancels something, or on an error. In the dashboard a cancelled deploy shows as
+**Cancelled by user**. That's the helper, not a fault.
+
+To remove it: `sudo systemctl disable --now coolify-skip-superseded.timer`, delete the four files it installed, and
+delete its token in the dashboard.
+
+#### 17. GENERIC. Run the proxy check when Docker starts
+
+Chapter 3's step 8 checks the proxy once a minute. A small addition to Docker's own service runs the same check 20
+seconds after every Docker start, which is exactly when the fault appears:
+
+```sh
+scp templates/coolify/proxy-socket-check.conf nwn@MACHINE:
+ssh nwn@MACHINE 'sudo install -D -m 644 proxy-socket-check.conf /etc/systemd/system/docker.service.d/50-coolify-proxy-socket.conf &&
+  sudo systemctl daemon-reload && rm proxy-socket-check.conf'
+```
+
+on each machine that has the check from step 8. Keep the minute timer too: it catches anything else that leaves the
+proxy on an old socket. The check is started on its own by `systemd-run`, so Docker never waits for it, and a
+failure of the check can't stop Docker starting.
+
+A plain `systemctl restart docker` doesn't cause the fault: Docker's socket stays the same file. A package upgrade
+stops and starts the socket too, and that's the case to test, at a quiet moment:
+
+```sh
+ssh nwn@MACHINE 'sudo systemctl stop docker.service docker.socket && sudo systemctl start docker.socket docker.service; sleep 30;
+  stat -c %i /var/run/docker.sock; docker exec coolify-proxy stat -c %i /var/run/docker.sock'
+```
+
+The two numbers should be the same, and `journalctl -t coolify-proxy-socket-check` should say it restarted the
+proxy. With `live-restore` from chapter 1, your other containers keep running through all of this.
+
+#### 18. LAYONARA-ONLY. Both, everywhere
+
+We run the helper and Coolify's own setting side by side, and the proxy check from Docker's start on every machine.
+On a server with one or two people merging, step 15 alone is plenty.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/03-coolify-tier3.md`](../playbooks/03-coolify-tier3.md) has these steps
+in a fixed shape it can follow. The helper's token is made by you in the dashboard and typed by you at the prompt;
+the agent never sees it.
+
+### Lessons
+
+- **The newest merge shouldn't wait for the older ones (2026-11-08).** Nine merges in half an hour, and every one of
+  them waited a quarter of an hour. Skipping the queued builds, not running more of them at once, is what fixed it:
+  the newest commit already holds the others.
+- **Read the answer Coolify gives, not the one you expect.** I first wrote the helper for a list of deploys. Coolify
+  4.7.5 answers with a list while the queue is empty and in order, and with an object keyed by number once it isn't,
+  which is exactly the moment the helper is needed. The test caught it; the template handles both.
+- **Quote the token.** A Coolify token has a `|` in it. Unquoted in the settings file, a shell reads half of it as a
+  command, and the helper says its token isn't set.
+- **Test the fault you're guarding against.** Restarting Docker didn't reproduce the proxy fault on the test,
+  because the socket stayed the same file. Stopping and starting the socket did. A check tested only on the easy case
+  would have looked fine and proved nothing.
+
+### Tested
+
+On 2026-11-26, with Coolify 4.7.5, on a control host and a game host in the state tier 2 leaves them (two fresh
+Hetzner cloud servers of the smallest shared type), and a private GitHub repository holding a small site whose
+build takes about 80 seconds, deployed on merge through a real GitHub webhook:
+
+- Coolify's own setting, on by default: three pushes five seconds apart; the middle deploy was cancelled the moment
+  the third arrived, the first and the newest were built, and the newest was live 2 minutes 34 seconds after its
+  push;
+- the setting switched off (through the API, which does what the **Advanced** page does), then the helper: a dry
+  run named the right deploy; with its timer on, two bursts, each queued deploy cancelled 2 and 16 seconds after the
+  newer push; a deploy started through the API sat in the same queue and was left alone, while the older webhook
+  deploy beside it was cancelled;
+- the helper's token made with only **read** and **deploy**, the settings file with the token quoted, and the
+  service as a throwaway system user;
+- the proxy fault after stopping and starting Docker's socket, with the minute timer stopped: the check from
+  Docker's start restarted the proxy, and its socket matched the host's again 25 seconds after Docker came back; a
+  plain restart of Docker left the socket, and the proxy, as they were.
+
+- the agent playbook as written: the setting check, the helper's install over an existing one, the drop-in, its
+  socket test (the proxy repaired, the site still answering) and its roll back. Its first try found a fault, fixed:
+  `install /dev/stdin` can't replace an existing settings file, so the file is now written with `cat`.
+
+The helper's token was made inside Coolify, which does what the **New Token** page does; the labels quoted here
+were read from Coolify's own pages on the day.
+
+Not tested: a Coolify version without the built-in setting (the helper was tested on 4.7.5 with the setting off,
+which leaves Coolify's queue in the same state), and a burst of more than three merges.
