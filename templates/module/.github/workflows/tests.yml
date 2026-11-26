@@ -1,0 +1,57 @@
+name: Tests
+
+# Runs the headless tests (tests/run.sh) on a real NWNX server, in Docker, on GitHub's own machines: on every pull
+# request, every change to main, by hand ("Run workflow"), and as the first step of a release (release.yml).
+# Needs no secrets. The logs and junit.xml are kept with the run for 14 days, pass or fail.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: Only the tests whose names start with this
+        default: t_
+  workflow_call:
+
+concurrency:
+  group: tests-${{ github.workflow_ref }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NASHER_VERSION: "1.2.2"
+  NEVERWINTER_VERSION: "2.3.2"
+  # The same image your server runs, and the same as in compile-check.yml.
+  NWNX_IMAGE: nwnxee/unified:ed79330
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/nwn-tools
+        with:
+          nasher-version: ${{ env.NASHER_VERSION }}
+          neverwinter-version: ${{ env.NEVERWINTER_VERSION }}
+          nwnx-image: ${{ env.NWNX_IMAGE }}
+
+      - name: Run the tests
+        # pipefail: without it the step takes tee's exit status, and a failed test would pass the run.
+        run: |
+          set -o pipefail
+          tests/run.sh --filter "${{ inputs.filter || 't_' }}" | tee "$RUNNER_TEMP/results.txt"
+
+      - name: Show the results on the run's page
+        if: always()
+        run: |
+          { echo '### Tests'; echo '```'; cat "$RUNNER_TEMP/results.txt" 2>/dev/null || echo "no results"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: tests/.run/
+          retention-days: 14

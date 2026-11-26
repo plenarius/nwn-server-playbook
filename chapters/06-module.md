@@ -1,7 +1,7 @@
 # Chapter 6. Your module in git
 
-**Status:** tier 1 is written and tested. Tier 2 (a test server that runs your scripts, staged releases) and tier 3
-(choosing which tests to run, test lanes) are not written yet.
+**Status:** tiers 1 and 2 are written and tested. Tier 3 (choosing which tests to run, test lanes) is not written
+yet.
 
 ## What you learn
 
@@ -313,3 +313,475 @@ On 2026-11-18, with nasher 1.2.2, neverwinter.nim 2.3.2 and the demo module from
 
 Not tested: the tools on macOS and Windows, a large module of your own (ours takes four to five minutes to check,
 the demo takes seconds), and the round trip through the toolset in step 10.
+
+## Tier 2. Tests on a real server, a staging copy, and releases by tag
+
+### What you learn
+
+How to have your scripts run for real, on the same NWNX server your players use, every time someone opens a pull
+request. And how to turn a release into one command: you push a tag, and a few minutes later the exact module
+that passed its tests is waiting on a staging copy of your game, with yesterday's world in it, for you to try
+before anyone else does.
+
+When you're done, you'll have:
+
+- a folder of small test scripts, and one command that runs them all on a headless NWNX server with a database of
+  its own, then says plainly what passed and what didn't;
+- the same tests on GitHub's machines on every pull request, with the logs kept for each run;
+- a second, private copy of your game on the game host, the **staging** copy, on its own port and with its own
+  database;
+- a release workflow: push a tag such as `v1.4.0`, and it tests, builds, makes a GitHub release with the module
+  attached, and puts that file on staging;
+- going live as one short, unhurried step that stays yours.
+
+The headless server ("headless" means nobody logs in: no game client, no screen) is what makes this possible.
+Your test scripts run inside the real game, with the real NWNX plugins and a real MariaDB, so a test that passes
+here means the script really works on that server.
+
+**Time:** about an hour the first time, most of it the staging copy. On the test, a run of the example tests took
+17 to 20 seconds at home and under a minute on GitHub, and a release from `git push` of the tag to a healthy
+staging game took under two minutes.
+
+You need chapter 6's tier 1 done (your module in git, with the compile check), chapter 12's nightly backup, and
+chapter 4's tier 2 (Coolify managing the game host). Chapter 8 explains the GitHub side of all this in more depth:
+what the machines are, what is cached and how the staging secret is kept.
+
+### What Layonara does
+
+- **About five hundred tests.** Each is a small script named after the system it tests and the case, such as a
+  bank's deposit or a door's lock. The runner runs them one at a time inside a headless server and turns the
+  server's log into a report.
+- **A fresh world for every run.** The test server gets a new MariaDB that lives in memory and starts from a small
+  seed with no player data in it, and it sits on a network with no route out, so a test can never post to our
+  Discord or reach the live game.
+- **Strict about what counts as a pass.** A test fails for a failed assert, for running too long, for a script
+  error, or for leaving things behind in the world (a creature it made, an item it dropped).
+- **What runs when.** Pull requests run the tests their change can reach; every night runs all of them. Those are
+  tier 3 ideas, and so are the parallel test lanes that run them; this tier runs everything, every time, which is
+  right while your suite is small.
+- **Every release is staged before it is live.** A merge builds the module and stages it beside the live one on the
+  game host; a tag such as `v8.4` rebuilds it with that version written into it and stages it again. Nothing is
+  live until one of us presses the button that swaps it in and restarts the game. Six releases in ten days, at the
+  time of writing.
+- **A separate server for trying things.** We try releases on a dev server of their own, which is tier 3. Here I
+  suggest something smaller that does both jobs: one staging copy on the game host, which holds the next release
+  and can be played.
+
+### The human playbook
+
+The files are in [`templates/module`](../templates/module): `tests/` (the runner, the example tests, the test
+server's Compose file and `run.sh`), `.github/workflows/tests.yml` and `release.yml`, and
+`.github/actions/nwn-tools` (the tool install the two workflows share). For staging, on the game host:
+[`templates/game/staging.yaml`](../templates/game/staging.yaml) and
+[`templates/game/stage.sh`](../templates/game/stage.sh).
+
+#### 12. GENERIC. Bring the tests into your repository
+
+If you started your module from the template after this section existed, you already have everything. Otherwise,
+from this repository:
+
+```sh
+cp -r templates/module/tests ~/mymodule/
+mkdir -p ~/mymodule/.github/actions
+cp -r templates/module/.github/actions/nwn-tools ~/mymodule/.github/actions/
+cp templates/module/.github/workflows/tests.yml templates/module/.github/workflows/release.yml ~/mymodule/.github/workflows/
+echo 'tests/.run/' >> ~/mymodule/.gitignore
+```
+
+and add a second build target to the end of `~/mymodule/nasher.cfg`, as in the template's:
+
+```
+[target]
+name = "test"
+description = "The module plus the tests in tests/nss, for tests/run.sh. Never put this one on a server."
+file = "test.mod"
+
+  [target.sources]
+  include = "src/**/*.{nss,json}"
+  include = "tests/nss/*.nss"
+```
+
+It is your module plus the scripts in `tests/nss`, built as `test.mod`. Your real module never contains the tests.
+The two `include` lines are on purpose: nasher reads a repeated key as a list, and refuses the `["a", "b"]` form
+that most TOML files would use. I found that out the slow way.
+
+#### 13. GENERIC. Run them at home
+
+You need Docker, the tools from step 1, and `NWN_ROOT` from step 2. Two of the example tests include `nwnx_sql`,
+whose script file step 5 put in `src/nss`; if your module doesn't use the database, delete those two.
+
+```sh
+cd ~/mymodule
+tests/run.sh
+```
+
+The first time, Docker downloads the NWNX image and MariaDB, which takes a minute or two. After that it is about
+20 seconds, and the end of what it prints looks like this:
+
+```
+server ran for 17 s
+PASS  t_db_roundtrip
+PASS  t_delay_async
+PASS  t_load_recorded
+PASS  t_module_start
+4 passed, 0 failed, 0 skipped
+```
+
+What happened: `run.sh` built `test.mod`, checked every script in it compiled (the same check as step 6), and
+started two containers from `tests/compose.yaml`: the NWNX image named in your compile check, and a MariaDB whose
+data lives only in memory. As the module loaded, NWNX ran a few words of script set in the Compose file, which
+starts the runner (`t_boot`, then `t_runner`). The runner found every compiled script named `t_<system>_<case>`,
+ran each one, wrote a line to the server's log for each result, and wrote a last line when it was done. `run.sh`
+waited for that line, copied the logs out, stopped both containers and threw them away.
+
+Everything the run left is in `tests/.run/`: `logs/nwserverLog1.txt` (the server's log, with every `TEST|` line),
+`logs/nwengineLog.txt` (the engine's own log, where script errors go), and `junit.xml`, a standard test report
+that GitHub and most tools can read.
+
+Two of the examples are worth a look. `t_db_roundtrip` writes to the database and reads it back through NWNX_SQL,
+so it proves the plugin, the settings and the database all work together. `t_load_recorded` checks the row your
+`mod_load` script from step 5 wrote when the module loaded: a test of your own module's code, on a real server.
+
+#### 14. GENERIC. Write a test of your own
+
+A test is a script in `tests/nss`, named `t_` then the system it tests, an underscore, and the case, at most 16
+characters in all. It includes `inc_test`, does something, and checks the result:
+
+```c
+// t_chest_empty: a chest made from the game's own blueprint starts empty.
+#include "inc_test"
+
+void main()
+{
+    object oChest = CreateObject(OBJECT_TYPE_PLACEABLE, "plc_chest1", GetStartingLocation());
+    Assert(GetIsObjectValid(oChest), "the chest was made");
+    Assert(!GetIsObjectValid(GetFirstItemInInventory(oChest)), "it holds nothing");
+    DestroyObject(oChest);
+}
+```
+
+The rules are short:
+
+- A test passes when it made at least one assert and none failed. A test that makes no assert at all fails, on
+  purpose: that is also what a test looks like when it stopped half-way on a script error.
+- `Assert`, `AssertInt` and `AssertStr` each say what should be true. When one fails, the log shows its words and
+  what it got: `arithmetic: got 4, want 5`.
+- A test that must wait for the game, such as a `DelayCommand`, calls `Test_Async()` first and `Test_Done()` when
+  it has checked everything. `t_delay_async` is the example. If `Test_Done()` never comes, the test fails after its
+  timeout (10 seconds unless you give another).
+- A test that can't run in this module calls `Test_Skip("why")` and returns.
+- Tidy up after yourself: destroy what you made, drop the tables you created. Tests run one after another on the
+  same server, so a mess left by one is the next one's problem.
+
+To run just one system's tests while you work on it:
+
+```sh
+tests/run.sh --filter t_chest_
+```
+
+#### 15. GENERIC. Watch a test fail, twice
+
+As with the compile check, see it fail before you trust it. A wrong answer:
+
+```sh
+printf '#include "inc_test"\nvoid main()\n{\n    AssertInt(2 + 2, 5, "arithmetic");\n}\n' > tests/nss/t_math_wrong.nss
+tests/run.sh --filter t_math_; echo "exit status $?"
+```
+
+```
+FAIL  t_math_wrong  (arithmetic: got 4, want 5; 1 of 1 asserts failed)
+0 passed, 1 failed, 0 skipped
+exit status 1
+```
+
+And a script that stops on an error. The game doesn't tell the script that called it; it writes the error to the
+engine's log and carries on. `results.py` reads that log too:
+
+```sh
+printf '#include "inc_test"\nvoid main()\n{\n    Assert(TRUE, "fine so far");\n    int n = 1 / GetLocalInt(OBJECT_SELF, "zero");\n}\n' > tests/nss/t_math_divide.nss
+tests/run.sh --filter t_math_; echo "exit status $?"
+```
+
+```
+FAIL  t_math_divide  (script error: DIVIDE BY ZERO)
+FAIL  t_math_wrong  (arithmetic: got 4, want 5; 1 of 1 asserts failed)
+0 passed, 2 failed, 0 skipped
+exit status 1
+```
+
+The first assert in `t_math_divide` passed, so without reading the engine's log this test would have passed. That
+is the reason the check reads both logs. A script error in any of your module's scripts during the run, not only in
+a test, fails the run too, as "the run itself".
+
+Take both out again: `rm tests/nss/t_math_*.nss`.
+
+#### 16. ADAPT. Give the test server what your live server has
+
+Change: the plugins, and the haks and talk table if you have them.
+
+The test server should be your live server's twin, minus anything that talks to the outside world. Open
+`tests/compose.yaml`: under `nwserver`, `environment` switches on Util (the runner needs it) and SQL. Add every
+`NWNX_..._SKIP=n` line your live `.env` has, except plugins that send things out (webhooks, metrics), which have
+nowhere to go on a network with no route out anyway.
+
+If your module uses haks and a talk table (chapter 7), point the test server at them:
+
+```sh
+TEST_HAK_DIR=~/mycontent/build/hak TEST_TLK_DIR=~/mycontent/build/tlk tests/run.sh
+```
+
+The image is the one named in your compile check's `NWNX_IMAGE`, so tests and check always agree. When you move to
+a new NWNX version, change it in `compile-check.yml`, `tests.yml` and `release.yml` together; I'll admit three
+places is two too many, but it keeps each workflow readable on its own.
+
+#### 17. GENERIC. Tests on every pull request
+
+Commit the new files and push. From then on `tests.yml` runs on every pull request and every change to `main`,
+beside the compile check:
+
+```sh
+git add -A && git commit -m "Tests that run on a real server"
+git push
+```
+
+On the test it took under a minute. The run's page shows the results in its summary, and under **Artifacts**,
+`test-logs` holds the same `tests/.run/` folder you get at home, kept for 14 days, failed runs included. That is the
+first place to look when a test fails on GitHub and not at home.
+
+To make a red test block a merge: in the repository's **Settings**, **Rules**, **Rulesets**, add a rule for the
+default branch that requires the status checks `compile` and `tests`. Rulesets are free on public repositories;
+on a private one they need a paid GitHub plan.
+
+A pull request with the failing test from step 15 failed on the test, with `FAIL  t_math_wrong` in its log; the
+compile check beside it stayed green, as it should, because everything compiled. With the ruleset on, GitHub
+refused to merge it.
+
+#### 18. ADAPT. The staging copy
+
+Change: the folders, if your deploy user isn't `nwn`; the port, if 5122 is taken.
+
+Staging is a second game on the game host, built from the same image, on port 5122, with folders of its own in
+`~/staging`. It never shares anything with the live game except the machine.
+
+On the game host:
+
+```sh
+ssh nwn@GAME 'mkdir -p ~/staging/home/modules ~/staging/db ~/staging/logs'
+scp templates/game/stage.sh nwn@GAME:staging/
+```
+
+Then open UDP 5122 in your provider's firewall, beside 5121 (chapter 1, step 3). That is the firewall that
+counts here: Docker opens the ports it publishes past `ufw`, as chapter 1's step 6 showed. If you'd rather only
+your testers could reach staging, allow 5122 from their addresses only.
+
+In Coolify, in the `game` project, add a resource: **Docker Compose**, on the game host, and paste
+[`templates/game/staging.yaml`](../templates/game/staging.yaml). Give it these settings in **Environment
+variables** (**Developer View** takes them as lines):
+
+```
+NWNX_IMAGE=nwnxee/unified:ed79330
+NWN_MODULE=mymodule
+NWN_SERVERNAME=My server (staging)
+NWN_PUBLICSERVER=0
+NWN_PLAYERPASSWORD=a password for your testers
+NWN_DMPASSWORD=a new one, not the live one
+NWN_ADMINPASSWORD=a new one, not the live one
+NWNX_SQL_PASSWORD=a new one, not the live one
+NWNX_SQL_SKIP=n
+NWNX_SQL_TYPE=mysql
+NWNX_SQL_DATABASE=nwn
+NWNX_SQL_USERNAME=nwn
+NWNX_UTIL_SKIP=n
+```
+
+plus the same `NWNX_..._SKIP` lines as the live game, and any other `NWN_` setting you changed for live, such as
+`NWN_MAXCLIENTS`. `NWN_MODULE` is the module's name, the same as live: staging
+loads whatever file of that name `stage.sh` gives it. Passwords of its own mean that a staging password that leaks
+opens nothing live. Then **Deploy**.
+
+The services in `staging.yaml` are called `staging-nwserver` and `staging-mariadb`, not `nwserver` and `mariadb`.
+That matters: `backup.sh` and `release.sh` find the live game by those plain names, and with two of each they would
+stop, rightly unsure which one you meant. I checked: with staging running, both still found the live game.
+
+The first deploy starts a game with no module of its own yet, so it keeps restarting until the first stage. That's
+expected, and it is the next thing to fix. Do it by hand once, with the module from your latest compile check:
+
+```sh
+scp mymodule.mod nwn@GAME:
+ssh nwn@GAME 'sudo staging/stage.sh "stage v0.0.1" < mymodule.mod'
+```
+
+```
+received v0.0.1: 39126 bytes, sha256 ...
+staging game stopped
+staging database filled from ../game/backups/20261126-030000
+staging characters copied from ../game/backups/20261126-030000
+staging game started with mymodule.mod
+staging is healthy with v0.0.1
+```
+
+Every stage does the same: empties the staging database and fills it from the live game's latest nightly backup,
+copies the character vault from it, puts the module in place and waits until the game answers. So staging always
+plays with yesterday's world, and nothing a tester does there survives the next release. It reads the live game's
+backups and touches nothing else of it.
+
+From your own computer, `templates/game/nwn-status.py GAME 5122` should now answer with `module mymodule`.
+
+#### 19. GENERIC. A key that can only stage
+
+GitHub will log in to your game host to stage releases, so it needs a key. Make one that can do that and nothing
+else. On your own computer:
+
+```sh
+ssh-keygen -t ed25519 -N '' -C staging-from-github -f ~/.ssh/mymodule-staging
+```
+
+Put its public half on the game host with a fixed command in front of it:
+
+```sh
+{ printf 'command="sudo -n /home/nwn/staging/stage.sh \\"$SSH_ORIGINAL_COMMAND\\"",restrict '; cat ~/.ssh/mymodule-staging.pub; } \
+  | ssh nwn@GAME 'cat >> ~/.ssh/authorized_keys'
+```
+
+`command=` means: whatever a login with this key asks for, run `stage.sh` instead, and hand it the request to
+check. `restrict` switches off everything else a login could do: no shell, no port forwarding, no file copying.
+Try it:
+
+```sh
+ssh -i ~/.ssh/mymodule-staging nwn@GAME "stage v0.0.2" < mymodule.mod | tail -1
+ssh -i ~/.ssh/mymodule-staging nwn@GAME 'cat /etc/passwd'
+```
+
+The first stages again and ends with `staging is healthy with v0.0.2`. The second is refused by `stage.sh` with
+`usage: stage vX.Y.Z`, and that's the point: someone who stole this key could put a module on staging, and no
+more.
+
+#### 20. GENERIC. The staging environment on GitHub
+
+GitHub keeps secrets for a workflow in **environments**: a named place, here `staging`, with its own secrets and
+its own rules about who may use them. In the module repository's **Settings**, **Environments**, **New
+environment**, name it `staging`, and:
+
+- under **Deployment branches and tags**, choose **Selected branches and tags** and add a rule for tags named
+  `v*`. Only a release tag can then reach the key; a branch, or a pull request, cannot;
+- add the secret `STAGING_SSH_KEY`: the whole private key, `~/.ssh/mymodule-staging`, pasted in;
+- add the variable `STAGING_HOST`: the game host's address;
+- add the variable `STAGING_KNOWN_HOSTS`: the game host's own key, so the workflow knows it is talking to your
+  machine. Get it with `ssh-keyscan -t ed25519 GAME` and compare it with what your own `~/.ssh/known_hosts` says
+  for that machine before you paste it.
+
+Variables are visible to anyone who can read the repository; secrets are not, and GitHub blanks them out of logs.
+The address and the host key aren't secret, so they're variables, which makes them easy to check later.
+
+Then delete the private key from your computer, or keep it in your password manager. GitHub has it now, and you
+can always make a new one.
+
+#### 21. GENERIC. Release by tag
+
+When `main` holds what you want to release:
+
+```sh
+git checkout main && git pull
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
+```
+
+That starts `release.yml`, whose three jobs you can watch under **Actions**:
+
+1. **tests**: the whole of `tests.yml`, on the tagged commit. If a test fails, nothing else happens.
+2. **release**: builds the module, runs the compile check's second pair of eyes over it, and makes a GitHub release
+   named after the tag with `mymodule.mod` and its checksum attached, and notes listing the pull requests since the
+   last release.
+3. **staging**: downloads that release's file, checks the checksum, and sends it to `stage.sh` with the key from
+   step 19.
+
+On the test it took 1 minute 53 seconds from the push to `staging is healthy with v0.2.0` at the end of the last job's
+log. A tag is a promise that a version is one exact thing, which is why the release keeps the file itself: months
+later you can still download exactly what `v0.2.0` was.
+
+`git tag -a` makes an annotated tag, with a message of its own. Some git setups refuse a plain `git tag v0.2.0`
+with "no tag message"; `-a` and `-m` work everywhere.
+
+#### 22. GENERIC. Try it, then go live
+
+Connect to staging with your game client, on the game host's address and port 5122, with the testers' password.
+Try the release's main change. Ask a builder or two to look too. This is the moment a release was made for.
+
+When you're happy, the module on staging is the one that goes live, byte for byte. On the game host:
+
+```sh
+cat ~/staging/staged.txt
+mkdir -p ~/incoming
+sudo cp ~/staging/home/modules/mymodule.mod ~/incoming/
+cd ~/game && sudo ./release.sh
+```
+
+`staged.txt` says which version is on staging and its checksum, which you can compare with the release's
+`SHA256SUMS`. `release.sh` is chapter 16's, unchanged: backup, keep the old module, swap, wait until healthy, and
+`--undo` to go back. Chapter 16's checklist still applies around it. Going live stays a person's step on purpose:
+the workflow holds a key to staging only, and nothing on GitHub can restart your live game.
+
+If staging shows a problem: fix it in a pull request, merge, tag `v0.2.1`. Staging gets the new version and a
+fresh copy of the world; live never saw the old one.
+
+#### 23. LAYONARA-ONLY. Fake players and leftovers
+
+Our runner does three things this template doesn't. It can attach fake players, so a test can walk a character
+through a door or a conversation; that needs a plugin that is in our own NWNX build only, so the template leaves it
+out. It fails a test for anything it left behind in the world. And it waits, before the first test, until every
+creature placed in the areas has finished its own start-up scripts, because on a busy machine a creature's loot
+being made during the first test was once blamed on that test. With five hundred tests each of these earned its
+place. With ten, you won't miss them.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/06-module-tier2.md`](../playbooks/06-module-tier2.md) has these steps in
+a fixed shape. It stops and asks before it creates the staging service, before it adds a key to the game host, and
+before every tag; going live is always yours.
+
+### Lessons
+
+- **A step that pipes into `tee` can hide a failure.** My first test workflow ran `tests/run.sh | tee results.txt`.
+  A pull request with a failing test came back green: GitHub's default shell takes the exit status of the last
+  command in a pipe, which was `tee`, which was happy. The step now starts with `set -o pipefail`, and the same pull
+  request turned red.
+- **A script error doesn't stop the script that called it.** The runner calls each test with `ExecuteScript`. When
+  the test divides by zero, the game logs the error in the engine's log, ends that test, and the runner carries on
+  none the wiser. A test that made one good assert before its error would pass. That is why `results.py` reads the
+  engine's log too, and why a test with no asserts at all fails.
+- **Never let a run that didn't finish look like a pass.** If the server crashes or hangs, there is no last line in
+  the log. `results.py` counts that as a failure of the run itself, and `run.sh` gives up after ten minutes, so a
+  hung server costs ten minutes, not GitHub's limit of six hours.
+- **Keep staging's name apart from live's.** Two services both called `nwserver` on one machine and the backup
+  script, rightly, refuses to guess. Different names cost nothing.
+- **Stage the file you will release.** A rebuild "of the same commit" for going live can differ (another nasher,
+  another day). Staging the release's own file, and going live with the file staging ran, means what players get is
+  exactly what you tried.
+
+### Tested
+
+On 2026-11-26, with nasher 1.2.2, neverwinter.nim 2.3.2, `nwnxee/unified:ed79330`, MariaDB 11.8 and Coolify 4.7.5,
+using the tier 1 demo module with chapter 6's `mod_load` example:
+
+- `tests/run.sh` at home with Docker 29.1: all four example tests passing (17 to 20 s each run), `--filter`,
+  `--no-build`, a skipped test, a wrong assert, a division by zero (caught from the engine's log), a test that
+  never called `Test_Done()`, and a run that didn't finish in time; each failure gave exit status 1;
+- the same on GitHub's machines in a private throwaway repository: a passing run on `main` (58 s in all), a pull
+  request with a failing test (red, after the `pipefail` fix in the lessons), and the logs kept as an artifact;
+- a tag making a release with `mymodule.mod` and `SHA256SUMS` attached, and the same run putting that file on
+  staging with the key from the environment: 1 minute 53 seconds from the push to a healthy staging game, the
+  secret blanked in the log, and the checksum in `staged.txt` the same as the release's;
+- the staging copy as a second Coolify service beside the live one (itself moved into Coolify with chapter 4's
+  tier 2 playbook), a stage taking about 8 seconds on a cx23;
+- the forced-command key: staging by hand with it, and every other command, a port forward and `scp` refused;
+- a tag on a commit with a failing test: the tests job failed, and the release and staging jobs were skipped, so no
+  release was made and staging kept the version it had;
+- the ruleset: with `compile` and `tests` required, the pull request with the failing test could not be merged;
+- the `staging` environment: a job on a branch was refused it ("not allowed to deploy to staging due to
+  environment protection rules"), a job on a tag got it;
+- going live with staging's file through chapter 16's `release.sh`, and `backup.sh` and `release.sh` still finding
+  the live game with staging running;
+- this chapter's agent playbook from step 6 on, as written, against the same repository and servers.
+
+Not tested: a module with haks in the test server (`TEST_HAK_DIR`), a real tester connecting to staging with a game
+client (the status query answered instead).
