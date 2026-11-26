@@ -31,9 +31,24 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 | 11 | A website | [chapter](chapters/11-website.md) | [playbook](playbooks/11-website.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 12 | Backups and restore | [chapter](chapters/12-backups.md) | [playbook](playbooks/12-backups.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 13 | Monitoring and alerting | | | Tier 1 is covered by chapter 4 (the health check); not written yet |
+| 16 | Day to day: releasing | [chapter](chapters/16-releasing.md) | [playbook](playbooks/16-releasing.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 
 Every chapter has the same five parts: what you learn, what Layonara does, the playbook for people, the playbook
 for agents, and the lessons behind the rules.
+
+## Tested as a whole
+
+Each chapter says what was tested for it. Tier 1 was also run once from start to finish, the way a reader would
+do it: on 2026-11-18, on one fresh server, every tier 1 playbook in order (1, 2, 4, 5, 6, 7, 11, 12, 16), each
+command block exactly as written, from a clean copy of this repository. It ended with a game server answering by
+name, a database, a module built by its own check on GitHub, custom content downloaded over HTTPS, a website,
+nightly backups and one release. From the moment the server existed, that took under twelve minutes.
+
+One thing differed from the playbooks: the GitHub repository for the module already existed, so playbook 6 pushed
+to it and did not create it.
+
+That run exists because the chapter-by-chapter tests had missed a fault between two chapters. It is the check to
+repeat whenever a template changes.
 
 ## How code gets in here
 
