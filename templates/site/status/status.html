@@ -1,0 +1,100 @@
+<!doctype html>
+<!--
+  The server's status, live (chapter 11, tier 2). It asks /status.json on this same site, never the operations API
+  itself, so it holds no key and works for anyone. Change the names in <title> and <h1> to yours, and the colour in
+  the first line of <style> to match your front page.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Server status: My World</title>
+  <meta name="description" content="Is My World's server up, and how many people are playing right now.">
+  <style>
+    :root { --accent: #8a5a1c; --ink: #1d1a16; --soft: #5d564c; --paper: #faf7f2; --line: #ddd5c8;
+            --up: #2f7d3a; --down: #a33a2a; --wait: #9a6a12; }
+    @media (prefers-color-scheme: dark) {
+      :root { --accent: #e0b070; --ink: #ece6dc; --soft: #a79f92; --paper: #171512; --line: #37322b;
+              --up: #7cc98a; --down: #f08a78; --wait: #e8bb5c; }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none; }
+    body {
+      margin: 0; padding: 3rem 1.25rem 4rem; background: var(--paper); color: var(--ink);
+      font: 1.0625rem/1.65 Georgia, "Iowan Old Style", "Times New Roman", serif;
+    }
+    main { max-width: 38rem; margin: 0 auto; }
+    h1 { font-size: 2.4rem; line-height: 1.15; margin: 0 0 .4rem; letter-spacing: -.01em; }
+    .lead { color: var(--soft); font-size: 1.2rem; margin: 0 0 2.5rem; }
+    .state { display: flex; align-items: center; gap: .7rem; font-size: 1.6rem; margin: 0 0 1.5rem; }
+    .dot { width: .8rem; height: .8rem; border-radius: 50%; background: var(--soft); flex: none; }
+    [data-state="online"] .dot { background: var(--up); }
+    [data-state="offline"] .dot { background: var(--down); }
+    [data-state="starting"] .dot, [data-state="trouble"] .dot { background: var(--wait); }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1.5rem; margin: 0;
+         padding-top: 1.25rem; border-top: 1px solid var(--line); }
+    dt { font: 600 .8rem/1.9 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+    dd { margin: 0; }
+    .note { color: var(--soft); font-size: .95rem; margin-top: 1.5rem; }
+    a { color: var(--accent); text-underline-offset: .15em; }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>My World</h1>
+    <p class="lead">Server status</p>
+
+    <div id="status" data-state="unknown" aria-live="polite">
+      <p class="state"><span class="dot"></span><span id="state-text">Asking the server…</span></p>
+      <dl id="facts" hidden>
+        <dt>Playing now</dt><dd id="players">-</dd>
+        <dt>Module</dt><dd id="module">-</dd>
+        <dt>Up since</dt><dd id="started">-</dd>
+      </dl>
+      <p class="note" id="note"></p>
+    </div>
+    <noscript><p>This page needs JavaScript to ask the server how it is.</p></noscript>
+
+    <p class="note"><a href="/">How to join</a></p>
+  </main>
+
+  <script>
+    const words = { online: 'Online', offline: 'Offline', starting: 'Starting up', trouble: 'Up, but not answering well' };
+    const $ = (id) => document.getElementById(id);
+    const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+
+    function show(s) {
+      // nginx serves the last good answer while the operations API is away: say so, and how old it is.
+      const stale = (Date.now() - new Date(s.checked).getTime()) / 60000 > 2;
+      $('status').dataset.state = stale ? 'unknown' : s.state;
+      $('state-text').textContent = (stale ? 'Last known: ' : '') + (words[s.state] || 'Unknown');
+      $('players').textContent = s.players === null ? 'not known' : String(s.players);
+      $('module').textContent = s.module || 'not known';
+      $('started').textContent = s.started ? when(s.started) : 'not known';
+      $('facts').hidden = s.state === 'offline';
+      const notes = [];
+      if (s.state === 'offline') notes.push('The game isn’t running just now. It’s usually back within a few minutes.');
+      if (s.restart_at) notes.push('A restart is planned for ' + when(s.restart_at) + '.');
+      if (stale) notes.push('The status service isn’t answering, so this is how things stood at ' + when(s.checked) + '.');
+      $('note').textContent = notes.join(' ');
+    }
+
+    async function refresh() {
+      try {
+        const reply = await fetch('/status.json', { cache: 'no-cache' });
+        if (!reply.ok) throw new Error(reply.status);
+        show(await reply.json());
+      } catch (e) {
+        $('status').dataset.state = 'unknown';
+        $('state-text').textContent = 'Can’t tell right now';
+        $('facts').hidden = true;
+        $('note').textContent = 'The status service isn’t answering. The game itself may be fine; try joining, or look again in a minute.';
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 60000);
+  </script>
+</body>
+</html>
