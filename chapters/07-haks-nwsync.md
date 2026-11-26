@@ -559,6 +559,10 @@ players still get a5f67333db8d4f7655fcbff94121e8d3e4d497d5. To release: /home/nw
 The last line is the one to read: players still get the old version. If any check fails, the script stops, says
 which one, and stages nothing. A new run replaces whatever was staged before, in `~/incoming` too.
 
+If the game host has chapter 6's staging copy, `publish.sh` also gives it the new content, so you can try the two
+together before your players see either; it then prints one more line, `staging has the same content`. Chapter
+16's tier 2 shows the one setting staging needs for that, and where it fits in a release.
+
 You can repeat the download check by hand at any time, for any version, on the control host or anywhere else you've
 built the image:
 
