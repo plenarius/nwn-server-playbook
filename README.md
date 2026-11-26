@@ -20,8 +20,8 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 
 | # | Chapter | People | Agents | State |
 |---|---|---|---|---|
-| 1 | Choosing and preparing servers | [chapter](chapters/01-servers.md) | [tier 1](playbooks/01-servers.md), [tier 2](playbooks/01-servers-tier2.md) | Tiers 1 and 2 written and tested; tier 3 to come |
-| 2 | DNS: giving your server a name | [chapter](chapters/02-dns.md) | [tier 1](playbooks/02-dns.md), [tier 2](playbooks/02-dns-tier2.md) | Tiers 1 and 2 written and tested; tier 3 to come |
+| 1 | Choosing and preparing servers | [chapter](chapters/01-servers.md) | [tier 1](playbooks/01-servers.md), [tier 2](playbooks/01-servers-tier2.md), [tier 3](playbooks/01-servers-tier3.md) | Tiers 1, 2 and 3 written and tested (tier 3: servers from a script with labels, expiry, a budget and a reaper; snapshots without the cloud-init trap; legacy prices; a third site, with a third location standing in for another provider) |
+| 2 | DNS: giving your server a name | [chapter](chapters/02-dns.md) | [tier 1](playbooks/02-dns.md), [tier 2](playbooks/02-dns-tier2.md), [tier 3](playbooks/02-dns-tier3.md) | Tiers 1, 2 and 3 written and tested (tier 3: firewall and redirect rules in a file in git, applied by a script that only touches its own rules; rate limit described, not tested) |
 | 3 | Coolify | [chapter](chapters/03-coolify.md) | [tier 2](playbooks/03-coolify.md) | Not used in tier 1; tier 2 written and tested; tier 3 to come |
 | 4 | The game server and NWNX | [chapter](chapters/04-game-server.md) | [tier 1](playbooks/04-game-server.md), [tier 2](playbooks/04-game-server-tier2.md) | Tiers 1 and 2 written and tested; tier 3 to come |
 | 5 | The database | [chapter](chapters/05-database.md) | [tier 1](playbooks/05-database.md), [tier 2](playbooks/05-database-tier2.md), [tier 3](playbooks/05-database-tier3.md) | Tiers 1, 2 and 3 written and tested (migrations with a ledger run by `release.sh`; a work queue that runs each job once, revision counters, read-only and queue-only accounts on the private address) |
