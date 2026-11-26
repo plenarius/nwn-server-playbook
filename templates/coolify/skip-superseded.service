@@ -1,0 +1,15 @@
+[Unit]
+Description=Cancel queued Coolify webhook deploys that a newer one of the same application supersedes
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/coolify-skip-superseded.env
+ExecStart=/usr/local/sbin/coolify-skip-superseded
+SyslogIdentifier=coolify-skip-superseded
+# It needs nothing on the machine but the network: run it as a throwaway user that can't write anywhere.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
