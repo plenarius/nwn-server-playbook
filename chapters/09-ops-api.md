@@ -582,9 +582,9 @@ cd ~/nwn-ops-api && git pull
 docker build -q -t nwn-ops-api:$(git rev-parse --short HEAD) .
 ```
 
-Wait for `progress` to show no operations, set `OPS_API_IMAGE` to the new tag, and restart the service. The new
-version switches the vault part on by itself (it uses `GAME_HOST` and `GAME_DIR`, which you already have), and the
-API's log says `configured: ... vault`. The rest stays off until step 22.
+Wait for `progress` to show no operations, set `OPS_API_IMAGE` to the new tag, and restart the service. Nothing new
+switches on yet: the game data part stays off until step 22, and the vault part until you ask for it there, because a
+vault folder's name is a player's CD key.
 
 #### 21. GENERIC. The API's copy of the game's files
 
@@ -631,7 +631,7 @@ In Coolify, open the `ops-api` service and edit its compose file: take the `#` o
 ```
 
 so the folder is mounted read-only. (If your service was made before this chapter's tier 3, paste in the newer
-[`coolify.yaml`](../templates/ops-api/coolify.yaml) first.) Then add the four settings at the end of
+[`coolify.yaml`](../templates/ops-api/coolify.yaml) first.) Then add the five settings at the end of
 [`ops-api.env.example`](../templates/ops-api/ops-api.env.example):
 
 | Setting | Value |
@@ -640,10 +640,14 @@ so the folder is mounted read-only. (If your service was made before this chapte
 | `GAME_MODULE_FILE` | `/data/game/module.mod` |
 | `GAME_HAK_DIR` | `/data/game/hak` |
 | `GAME_TLK_DIR` | `/data/game/tlk` |
+| `GAME_VAULT` | `on` |
+
+`GAME_VAULT` switches on the vault routes (a player's characters, character sheets, retiring a character). Leave it
+out if your website won't show characters: without it those routes answer 503.
 
 These are paths inside the API's container, not on the control host. You don't name your haks or your talk table:
 the API reads them from your module's own list, in its order. Restart the service. Its log now says
-`configured: ..., game_data, vault`.
+`configured: ..., game_data, vault` (without `GAME_VAULT`, just `game_data`).
 
 #### 23. GENERIC. A first look
 
@@ -746,7 +750,8 @@ On 2026-11-26, on two fresh Hetzner cloud servers of the smallest shared type, U
 control host, WireGuard between them):
 
 - nwn-ops-api at commit `fb5fea1`, its game data part
-  ([nwn-ops-api#4](https://github.com/plenarius/nwn-ops-api/pull/4)), built on the control host from a copy of my
+  ([nwn-ops-api#4](https://github.com/plenarius/nwn-ops-api/pull/4)); since then the vault routes need `GAME_VAULT=on`
+  ([nwn-ops-api#5](https://github.com/plenarius/nwn-ops-api/pull/5), covered by its tests, not rerun here), built on the control host from a copy of my
   own checkout, run as the Coolify service from `coolify.yaml` with the game data settings of step 22;
 - the example hak and talk table of chapter 7 live on the game host, and a module with both in its list;
 - `gamedata-sync.sh`: the first copy in 5 seconds (221 MB of base game data from the game's image), a run with

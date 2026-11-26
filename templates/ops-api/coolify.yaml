@@ -29,6 +29,8 @@ services:
       GAME_MODULE_FILE: ${GAME_MODULE_FILE:-}
       GAME_HAK_DIR: ${GAME_HAK_DIR:-}
       GAME_TLK_DIR: ${GAME_TLK_DIR:-}
+      # The vault routes (characters, sheets, retire): off unless on. A vault folder's name is a player's CD key.
+      GAME_VAULT: ${GAME_VAULT:-off}
     ports:
       # Only on the control host's private address. The API can stop your game, so it never goes on a public one.
       - "${OPS_API_BIND:-10.77.0.1}:8100:8100"
