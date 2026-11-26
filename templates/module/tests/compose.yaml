@@ -1,0 +1,57 @@
+# The headless test server: started and stopped by tests/run.sh, not by hand.
+#
+# The same NWNX image as your server, with a database of its own that lives in memory and is empty at every run.
+# The two share a network with no route out, so nothing a test does can reach the internet or your live server,
+# and nothing is published on the machine running the tests.
+networks:
+  sealed:
+    internal: true
+
+services:
+  mariadb:
+    image: mariadb:${MARIADB_VERSION:-11.8}
+    networks: [sealed]
+    environment:
+      MARIADB_DATABASE: nwn
+      MARIADB_USER: nwn
+      MARIADB_PASSWORD: test
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  nwserver:
+    image: "${NWNX_IMAGE:?set NWNX_IMAGE to the same image as your server}"
+    networks: [sealed]
+    stdin_open: true
+    tty: true
+    environment:
+      NWN_MODULE: test
+      NWN_SERVERNAME: tests
+      NWN_PUBLICSERVER: "0"
+      NWN_DMPASSWORD: test
+      NWN_ADMINPASSWORD: test
+      NWN_TAIL_LOGS: "n"
+      NWNX_CORE_LOG_LEVEL: "6"
+      # Switch on the plugins your server uses, the same as in its .env. Util is needed: it starts the tests.
+      NWNX_UTIL_SKIP: "n"
+      NWNX_SQL_SKIP: "n"
+      NWNX_SQL_TYPE: mysql
+      NWNX_SQL_HOST: mariadb
+      NWNX_SQL_DATABASE: nwn
+      NWNX_SQL_USERNAME: nwn
+      NWNX_SQL_PASSWORD: test
+      # Starts the tests as the module loads; run.sh passes --filter in TEST_FILTER.
+      NWNX_UTIL_PRE_MODULE_START_SCRIPT_CHUNK: >-
+        SetLocalString(GetModule(), "TEST_FILTER", "${TEST_FILTER:-t_}"); ExecuteScript("t_boot", GetModule());
+    volumes:
+      - ./.run/modules:/nwn/home/modules:ro
+      - ${TEST_HAK_DIR:-./.run/hak}:/nwn/home/hak:ro
+      - ${TEST_TLK_DIR:-./.run/tlk}:/nwn/home/tlk:ro
+    depends_on:
+      mariadb:
+        condition: service_healthy

@@ -1,0 +1,77 @@
+name: Release
+
+# Push a tag such as v1.4.0 and this runs the tests, builds the module, makes a GitHub release with the module
+# attached, and puts that exact file on the staging copy of your game. It never touches the live game: going live
+# is a person's step on the game host (chapter 6, tier 2).
+#
+# Staging needs, in the repository's environment "staging" (Settings, Environments):
+#   secret   STAGING_SSH_KEY      the private half of the staging key (it can run stage.sh and nothing else)
+#   variable STAGING_HOST         the game host's address
+#   variable STAGING_KNOWN_HOSTS  the game host's line for known_hosts (ssh-keyscan, checked by you)
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  NASHER_VERSION: "1.2.2"
+  NEVERWINTER_VERSION: "2.3.2"
+  NWNX_IMAGE: nwnxee/unified:ed79330
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  release:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/nwn-tools
+        with:
+          nasher-version: ${{ env.NASHER_VERSION }}
+          neverwinter-version: ${{ env.NEVERWINTER_VERSION }}
+          nwnx-image: ${{ env.NWNX_IMAGE }}
+
+      - name: Build the module
+        run: |
+          nasher pack default --yes --abortOnCompileError
+          python3 tools/check_compiled.py *.mod src
+          sha256sum *.mod > SHA256SUMS
+
+      - name: Make the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" *.mod SHA256SUMS --title "$GITHUB_REF_NAME" --generate-notes
+
+  staging:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    concurrency:
+      group: staging
+      cancel-in-progress: false
+    steps:
+      - name: Fetch the released module
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" -p '*.mod' -p SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Put it on staging
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_KNOWN_HOSTS: ${{ vars.STAGING_KNOWN_HOSTS }}
+        run: |
+          [ -n "$STAGING_HOST" ] && [ -n "$STAGING_SSH_KEY" ] || { echo "::error::the staging environment is not set up yet"; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging && chmod 600 ~/.ssh/staging
+          printf '%s\n' "$STAGING_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/staging -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "nwn@$STAGING_HOST" \
+            "stage $GITHUB_REF_NAME" < "$(ls *.mod)"

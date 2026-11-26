@@ -1,0 +1,40 @@
+name: NWN build tools
+description: >-
+  Installs nasher and the neverwinter.nim tools, and copies the game's own data out of the NWNX image for the
+  compiler. Afterwards nasher, NWN_ROOT and NWN_HOME are ready for later steps. Nothing is cached: on GitHub's
+  machines both downloads were as quick as getting them from GitHub's cache (chapter 8, step 3).
+
+inputs:
+  nasher-version:
+    required: true
+  neverwinter-version:
+    required: true
+  nwnx-image:
+    description: The same image your server runs.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Download the tools
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        mkdir -p ~/nwn-tools && cd "$RUNNER_TEMP"
+        gh release download "${{ inputs.nasher-version }}" -R squattingmonk/nasher -p nasher_linux.tar.gz
+        gh release download "${{ inputs.neverwinter-version }}" -R niv/neverwinter.nim -p neverwinter-x86_64-linux-gnu.zip
+        tar xzf nasher_linux.tar.gz -C ~/nwn-tools nasher
+        unzip -oq neverwinter-x86_64-linux-gnu.zip -d ~/nwn-tools
+
+    - name: Copy the game's data out of the server image
+      shell: bash
+      run: |
+        echo "$HOME/nwn-tools" >> "$GITHUB_PATH"
+        docker pull -q "${{ inputs.nwnx-image }}"
+        cid=$(docker create "${{ inputs.nwnx-image }}")
+        docker cp "$cid:/nwn/data" "$RUNNER_TEMP/nwn"
+        docker rm "$cid" > /dev/null
+        mkdir -p "$RUNNER_TEMP/nwn-home"
+        echo "NWN_ROOT=$RUNNER_TEMP/nwn" >> "$GITHUB_ENV"
+        echo "NWN_HOME=$RUNNER_TEMP/nwn-home" >> "$GITHUB_ENV"

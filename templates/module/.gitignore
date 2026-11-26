@@ -2,3 +2,5 @@
 .nasher/
 *.mod
 *.ncs
+# What tests/run.sh makes.
+tests/.run/

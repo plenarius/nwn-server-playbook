@@ -1,0 +1,57 @@
+# The staging copy of the game: a second Coolify service on the game host (chapter 6, tier 2).
+# Paste this into Coolify as a Docker Compose service on the game host, beside the live one.
+#
+# It is the live game's twin with its own port, its own folders in /home/nwn/staging and its own database, which
+# stage.sh fills from the live game's latest backup each time a release arrives. Change the paths if your deploy
+# user isn't nwn. The services have their own names (staging-nwserver, staging-mariadb), so that backup.sh and
+# release.sh still find exactly one live game and one live database.
+services:
+  staging-nwserver:
+    image: ${NWNX_IMAGE}
+    environment:
+      NWN_PORT: ${NWN_PORT:-5122}
+      NWN_DMPASSWORD: ${NWN_DMPASSWORD}
+      NWN_ADMINPASSWORD: ${NWN_ADMINPASSWORD}
+      NWN_PLAYERPASSWORD: ${NWN_PLAYERPASSWORD}
+      NWNX_SQL_HOST: staging-mariadb
+      NWNX_SQL_PASSWORD: ${NWNX_SQL_PASSWORD}
+    ports:
+      - "${NWN_PORT:-5122}:${NWN_PORT:-5122}/udp"
+    volumes:
+      - /home/nwn/staging/home:/nwn/home
+      - /home/nwn/staging/logs:/nwn/run/logs.0
+    depends_on:
+      staging-mariadb:
+        condition: service_healthy
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    healthcheck:
+      # Healthy when the server answers a status query, the same question a player's game asks.
+      test:
+        - CMD
+        - perl
+        - -MIO::Socket::INET
+        - -e
+        - '$$p=$$ENV{NWN_PORT}||5122; $$s=IO::Socket::INET->new(PeerAddr=>"127.0.0.1",PeerPort=>$$p,Proto=>"udp") or exit 1; $$s->send("BNXI".pack("v",$$p)); $$SIG{ALRM}=sub{exit 1}; alarm 3; $$s->recv($$b,512); exit(substr($$b,0,4) eq "BNXR"?0:1)'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  staging-mariadb:
+    image: mariadb:${MARIADB_VERSION:-11.8}
+    environment:
+      MARIADB_DATABASE: ${NWNX_SQL_DATABASE:-nwn}
+      MARIADB_USER: ${NWNX_SQL_USERNAME:-nwn}
+      MARIADB_PASSWORD: ${NWNX_SQL_PASSWORD}
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+    volumes:
+      - /home/nwn/staging/db:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
