@@ -1,0 +1,27 @@
+# What copy-db.sh changes in the copy of the live database before the dev server gets it (chapter 14).
+# Copy this file to scrub.list beside copy-db.sh and write your own rules: one per line, table, column, what to do.
+#
+#   blank       the text becomes empty ('')            for text columns that may not be NULL
+#   null        the value becomes NULL                 for any column that allows NULL
+#   pseudonym   the text becomes p + 12 letters/digits  the same name gives the same pseudonym everywhere in one
+#                                                       copy, so tables that join on it still join; the secret
+#                                                       that makes them is new each copy and never kept
+#   empty       every row of the table goes            write * as the column; for logs and anything you'd rather
+#                                                       builders never see
+#   keep        nothing; says you looked               for a column whose name looks private but isn't
+#
+# copy-db.sh stops, and the dev server keeps the copy it had, if a rule names a table or column that doesn't
+# exist, or if any column whose name looks private (ip, cdkey, password, email, discord, token, secret...) has no
+# rule. So when a migration adds such a column, the next copy asks you about it instead of passing it on.
+#
+# These lines are an example for a world with an accounts table and a chat log. Your tables will differ.
+#
+# table        column          what
+# players      account         pseudonym
+# players      cdkey           blank
+# players      ip_address      null
+# players      password_hash   null
+# players      discord_id      null
+# characters   account         pseudonym
+# chat_log     *               empty
+# settings     api_token_name  keep
