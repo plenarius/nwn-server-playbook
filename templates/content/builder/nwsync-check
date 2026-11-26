@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Downloads one version of your content from your download address, the way a player's game does, into an
+# empty folder, and checks every file against its checksum. Part of the builder image.
+#
+#   nwsync-check https://nwsync.example.org VERSION
+#
+# Prints how many files and how much, or fails naming what went wrong.
+set -euo pipefail
+url=${1:?give the download address}; url=${url%/}
+version=${2:?give the version, 40 letters and digits}
+[[ $version =~ ^[0-9a-f]{40}$ ]] || { echo "not a version: $version" >&2; exit 1; }
+dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
+mkdir -p "$dir/manifests"
+curl -fsS -o "$dir/manifests/$version" "$url/manifests/$version"
+# The list of files, then each one from data/sha1/<first two>/<next two>/<checksum>, eight at a time.
+nwn_nwsync_print "$dir/manifests/$version" 2>/dev/null | grep -oE '^[0-9a-f]{40}' | sort -u |
+  sed -E "s|^((..)(..).*)|$url/data/sha1/\2/\3/\1\n dir=$dir/data/sha1/\2/\3|" |
+  aria2c -q --input-file - --max-concurrent-downloads 8 --auto-file-renaming=false ||
+  { echo "some files of $version could not be downloaded" >&2; exit 1; }
+out=$(nwn_nwsync_print --verify "$dir/manifests/$version" 2>&1) ||
+  { echo "a downloaded file does not match its checksum: $(tail -n 1 <<< "$out")" >&2; exit 1; }
+grep -E '^(Entries|Size):' <<< "$out" | tr -s ' ' | paste -sd ' '

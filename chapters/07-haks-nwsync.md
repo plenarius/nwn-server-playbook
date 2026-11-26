@@ -1,8 +1,8 @@
 # Chapter 7. Custom content: haks, the talk table and NWSync
 
-**Status:** tiers 1 and 2 are written and tested. Tier 2, further down, builds and serves the content from the
-control host and cleans out old content. Staging, and tier 3 (compiled models, content for builders' tools), are
-not written yet.
+**Status:** tiers 1 and 2 are written and tested. Tier 2, further down, builds the content on the control host in
+a pinned builder image, serves it from there, stages every new version and checks it before players can get it,
+and cleans out old content. Tier 3 (compiled models, content for builders' tools) is not written yet.
 
 ## What you learn
 
@@ -312,21 +312,25 @@ the certificate's renewal, which is due only after two months.
 ### What you learn
 
 How to move the building and the serving of your content off the game host and onto the control host from chapter
-1's tier 2. The game host then only runs the game. One script on the control host builds from your repository,
-publishes the new version for players' games, sends the files to the game host, and tidies away old versions,
-carefully.
+1's tier 2, and how to release new content in two separate moves: first stage it, where you can check it and
+players can't see it yet, then promote it. The game host then only runs the game.
 
 When you're done, you'll have:
 
 - your content repository cloned on the control host, which builds it;
+- a **builder image**: the content tools at one pinned version, checked against a checksum, in which every build
+  runs;
 - the download address served by Coolify on the control host, with its own certificate;
-- [`templates/content/publish.sh`](../templates/content/publish.sh): one command from a merged change to files
-  waiting on the game host for chapter 16's `release.sh`;
+- [`templates/content/publish.sh`](../templates/content/publish.sh): one command from a merged change to a
+  **staged** version, downloaded and checked over HTTPS the way a player's game would fetch it, with its files
+  waiting on the game host;
+- [`promote.sh`](../templates/content/promote.sh): one command that releases the staged version, and with
+  `--back`, one that goes back to the version before;
 - old versions removed only when nothing can still need them, the one the live game hands out above all;
 - a game host with no web server and nothing open but the game.
 
-Players notice none of it until you release, and the release itself is the same few seconds as before: 8 on the
-test.
+Players notice none of it until you promote, and the release itself is the same few seconds as before: on the
+test the whole promote, with its backup and the restart, took about 10 seconds.
 
 ### What Layonara does
 
@@ -334,6 +338,10 @@ test.
   about 21 minutes.
 - **The download folder is served by a Coolify service** with its own name and certificate.
 - **The game host receives finished files** and swaps them in when we release.
+- **The build runs in a pinned image.** Every tool in it is downloaded at a fixed version and checked against a
+  SHA-256 checksum, and the image refuses to build if a tool reports another version.
+- **New haks are staged.** They wait in a side folder on the game host and go into place only in the release,
+  together with the module, before the restart.
 - **The tidy-up keeps what the live game hands out.** It reads the version from the game itself before it removes
   anything.
 
@@ -343,9 +351,15 @@ You need chapter 1's and chapter 3's tier 2, and chapter 4's tier 2 is a good id
 runs the game. The examples use `GAME` for the game host's public address and `CONTROL` for the control host's. The
 game host's private address is `10.77.0.2`, as in chapter 1.
 
-The new files are in [`templates/content`](../templates/content): `publish.sh`, and
-[`downloads.yaml`](../templates/content/downloads.yaml) with its [`Caddyfile`](../templates/content/Caddyfile), the
-downloads service.
+The new files are in [`templates/content`](../templates/content):
+
+- [`builder/Dockerfile`](../templates/content/builder/Dockerfile) and
+  [`builder/nwsync-check`](../templates/content/builder/nwsync-check), the builder image;
+- [`publish.sh`](../templates/content/publish.sh), [`promote.sh`](../templates/content/promote.sh) and
+  [`prune.sh`](../templates/content/prune.sh), with the settings they share in
+  [`content.env.example`](../templates/content/content.env.example) and [`lib.sh`](../templates/content/lib.sh);
+- [`downloads.yaml`](../templates/content/downloads.yaml) with its [`Caddyfile`](../templates/content/Caddyfile),
+  the downloads service.
 
 #### 13. GENERIC. Know what moves
 
@@ -354,26 +368,25 @@ downloads service.
 - **The download folder** moves to the control host, and the name players download from moves with it. The game
   doesn't need to know: it asks the same name as before.
 - **The game host keeps its haks and talk table.** The game needs them on its own disk. `publish.sh` sends them
-  across the private network, and you release them as before.
+  across the private network, and `promote.sh` releases them with chapter 16's `release.sh`.
+- **The tools move into an image.** Nothing is installed on the control host itself, and the version of the tools
+  changes only when you change one line.
 
-#### 14. GENERIC. Tools, a key and the repository on the control host
+#### 14. GENERIC. A key and the repository on the control host
 
-On the control host, as `nwn`. The tools come as a zip file, and a fresh Ubuntu has no `unzip`:
+On the control host, as `nwn`, make the control host its own key:
 
 ```sh
-sudo apt-get install -y unzip
-mkdir -p ~/nwn-tools && cd ~/nwn-tools
-curl -fsSL -o nw.zip https://github.com/niv/neverwinter.nim/releases/download/2.3.2/neverwinter-x86_64-linux-gnu.zip
-unzip -oq nw.zip && rm nw.zip
 ssh-keygen -t ed25519 -N "" -C "nwn@control" -f ~/.ssh/id_ed25519
 cat ~/.ssh/id_ed25519.pub
 ```
 
-That last key is the control host's own. It does two jobs:
+That key does two jobs:
 
 - **On GitHub,** in your content repository: **Settings**, **Deploy keys**, add it, **read-only**. The control host
   can then read the repository, and nothing else on GitHub.
-- **On the game host,** add the same line to `~/.ssh/authorized_keys`, so the control host can send it files:
+- **On the game host,** add the same line to `~/.ssh/authorized_keys`, so the control host can send it files and
+  run the release:
 
   ```sh
   ssh nwn@GAME 'cat >> ~/.ssh/authorized_keys'   # paste the line, then Ctrl-D
@@ -385,15 +398,14 @@ Then, back on the control host, check both and clone:
 ssh nwn@10.77.0.2 hostname        # answer "yes" to the first-time question
 ssh-keyscan github.com >> ~/.ssh/known_hosts
 git clone git@github.com:you/myhaks.git ~/myhaks
-cd ~/myhaks && PATH=~/nwn-tools:$PATH ./build.sh
 ```
 
-The build should pack your haks and the talk table, as it does at home.
+#### 15. ADAPT. The download folder, the scripts and the builder image
 
-#### 15. GENERIC. Copy the download folder across
+Change: the address in `content.env`.
 
 The control host starts with everything the game host serves today, so no player's download breaks when the name
-moves:
+moves. On the control host:
 
 ```sh
 mkdir -p ~/nwsync ~/content
@@ -401,14 +413,36 @@ rsync -a nwn@10.77.0.2:game/nwsync/ ~/nwsync/
 cat ~/nwsync/latest
 ```
 
-And from your own computer, the downloads service's settings file and the script:
+From your own computer, the scripts, the downloads service's settings file and the builder image's files:
 
 ```sh
-scp templates/content/Caddyfile templates/content/publish.sh nwn@CONTROL:content/
+scp -r templates/content/* nwn@CONTROL:content/
 ```
 
-The `Caddyfile` has to be there before the service starts. Otherwise Docker makes an empty folder in its place, and
-the service won't start.
+The `Caddyfile` has to be there before the downloads service starts. Otherwise Docker makes an empty folder in its
+place, and the service won't start.
+
+Back on the control host, the scripts' one setting, the address players download from:
+
+```sh
+cd ~/content
+cp content.env.example content.env
+nano content.env        # NWSYNC_URL=https://nwsync.example.org, your own name
+```
+
+Now the **builder image**. It holds the neverwinter.nim tools, the same ones you use at home, at one version. The
+[`Dockerfile`](../templates/content/builder/Dockerfile) downloads them and checks the download against a checksum
+written in the file, so a changed or damaged download stops the build instead of reaching your players. Build it and
+use it once:
+
+```sh
+docker build -t nwsync-builder:2.3.2 ~/content/builder
+docker run --rm --user "$(id -u):$(id -g)" -v ~/myhaks:/src nwsync-builder:2.3.2 /src/build.sh
+```
+
+The image took 22 seconds to build on the test, and the build should pack your haks and the talk table, as it does
+at home. You won't usually run either command again: `publish.sh` does its work in the image, and builds the image
+again by itself if it's ever missing, for example after a clean-up of unused images.
 
 #### 16. ADAPT. The downloads service
 
@@ -479,7 +513,26 @@ your copy until you've released from the control host once.
 If your game host still serves a website from tier 1, keep Caddy running for now, remove only `sites/nwsync.caddy`
 and run `docker compose up -d caddy`. Chapter 11's tier 2 moves the website.
 
-#### 20. GENERIC. Publishing, from now on
+#### 20. GENERIC. Know why releases come in two moves
+
+The game reads `latest` from your download address **every time it starts**, and hands out whatever version that
+names. Not only when you release: also when it crashes and Docker starts it again, or when the machine reboots at
+night for an update.
+
+So `latest` must only ever name content whose haks are already on the game host. If a new version were named in
+`latest` while the game host still had the old haks, the next unplanned start would send every joining player
+content that doesn't match the server's.
+
+That's why, from here on, a release has two moves:
+
+- **Stage.** `publish.sh` builds the new version and writes it beside the others in the download folder. `latest`
+  is not touched. The script then downloads the new version from your real address, over HTTPS, as a player's game
+  would, and checks every file. The haks, the talk table and the module go to `~/incoming` on the game host and are
+  checked there too. Players can't see any of it: nothing tells their games it exists.
+- **Promote.** `promote.sh` moves `latest` to the staged version and runs the release on the game host. Both
+  change in the same few seconds, in that order, so the game reads the new version when the release restarts it.
+
+#### 21. GENERIC. Stage a new version
 
 When a change to your content is merged, on the control host:
 
@@ -489,26 +542,114 @@ When a change to your content is merged, on the control host:
 
 The module file is the one you're about to release: fetch it as in chapter 16's step 6 and copy it to the control
 host. Its list of haks decides what goes into the new version, and it travels to the game host with the content.
-The script then:
 
-1. pulls the repository's newest commit and builds;
-2. writes the new version into `~/nwsync`. The running game keeps handing out the old version, which is still
-   there;
-3. sends the haks, the talk table and the module to `~/incoming` on the game host;
-4. tidies away old versions, then tells you what it kept.
+On the test, with the example content, it printed:
 
-Then on the game host, `sudo ./release.sh` as in chapter 16 swaps them in, and the game advertises the new version
-when it comes back. Together, the two take the place of chapter 16's step 5 and the content half of its step 6.
+```
+packed build/hak/my_first_hak.hak (1 files)
+built build/tlk/my_tlk.tlk
+written 8fbb20b5950961620278816e3de6a2b1e3fccb74
+Entries: 2 Size: 171B
+checked: https://nwsync.example.org hands out 8fbb20b5950961620278816e3de6a2b1e3fccb74 completely
+sent 3 files to 10.77.0.2:incoming, checked
+staged 8fbb20b5950961620278816e3de6a2b1e3fccb74
+players still get a5f67333db8d4f7655fcbff94121e8d3e4d497d5. To release: /home/nwn/content/promote.sh
+```
 
-The tidy-up removes an old version only when all four of these hold: it isn't among the newest three, it isn't what
-`latest` names, it isn't what the game says it is handing out right now, and it's more than 7 days old. Content
-files no remaining version uses go too, once they're 7 days old. If the script can't ask the game which version it
-hands out, it removes nothing and says so. Only one publish runs at a time.
+The last line is the one to read: players still get the old version. If any check fails, the script stops, says
+which one, and stages nothing. A new run replaces whatever was staged before, in `~/incoming` too.
 
-The settings at the top of the script (`CONTENT_DIR`, `KEEP` and the rest) can be set in front of the command, for
-example `KEEP=5 ~/content/publish.sh ~/mymodule.mod`.
+You can repeat the download check by hand at any time, for any version, on the control host or anywhere else you've
+built the image:
 
-#### 21. LAYONARA-ONLY. Seventeen gigabytes, again
+```sh
+docker run --rm nwsync-builder:2.3.2 nwsync-check https://nwsync.example.org 8fbb20b5950961620278816e3de6a2b1e3fccb74
+```
+
+It prints the number of files and their size, or what went wrong. On the test it noticed a missing file and a
+damaged one.
+
+#### 22. GENERIC. Promote it
+
+At a quiet moment, when you'd release anyway (chapter 16's steps 1 to 4 still apply), on the control host:
+
+```sh
+~/content/promote.sh
+```
+
+It moves `latest` to the staged version, then runs `release.sh` on the game host for you: the backup, the swap,
+the restart. Then it asks the game which version it hands out, and should say the staged one:
+
+```
+latest is 8fbb20b5950961620278816e3de6a2b1e3fccb74 (was a5f67333db8d4f7655fcbff94121e8d3e4d497d5)
+backup made: backups/20261126-144236 (16K)
+game stopped
+installed home/hak/my_first_hak.hak
+installed home/modules/mymodule.mod
+installed home/tlk/my_tlk.tlk
+game started
+the game is healthy again
+the game hands out 8fbb20b5950961620278816e3de6a2b1e3fccb74
+kept: latest, the staged one, the one to go back to, the game's 8fbb20b5950961620278816e3de6a2b1e3fccb74, ...
+```
+
+This replaces chapter 16's steps 5 to 7 whenever content changes. A release of the module alone still goes the
+chapter 16 way.
+
+If the release fails, the script says so and tells you the command that goes back.
+
+#### 23. GENERIC. Going back
+
+If the new content turns out wrong, on the control host:
+
+```sh
+~/content/promote.sh --back
+```
+
+It points `latest` at the version from before the last promote, and runs `release.sh --undo` on the game host,
+which puts back the haks, the talk table and the module that release replaced. On the test that took 9 seconds,
+and the game handed out the earlier version again.
+
+Going back works once, for the last promote. Two things to know:
+
+- `--back` uses `release.sh --undo`, which puts back what the **last** release replaced. If you released a module
+  alone since the promote, it would put back that module and not the content. In that case, don't use `--back`:
+  stage the older content again, as in the next point.
+- To go back further, stage the older content again: revert the change in git and publish. The same content always
+  gives the same version, so players who still have it download nothing.
+
+#### 24. GENERIC. The tidy-up
+
+After every promote, `promote.sh` runs [`prune.sh`](../templates/content/prune.sh). It removes an old version only
+when every one of these holds:
+
+- it isn't among the newest three;
+- it isn't what `latest` names, nor the staged version, nor the one `--back` would go back to;
+- it isn't what the game says it is handing out right now;
+- it's more than 7 days old.
+
+Content files that no remaining version uses go too, once they're 7 days old. If the script can't ask the game
+which version it hands out, for example because the game is stopped, it removes nothing and says so. Only one of
+the three scripts runs at a time.
+
+You shouldn't need to run it yourself. If you do, it's `~/content/prune.sh`. The numbers are settings in
+`content.env` (`KEEP` and `MIN_AGE_DAYS`); a setting that file doesn't set can also go in front of a command, as in
+`KEEP=5 ~/content/prune.sh`.
+
+#### 25. GENERIC. A new version of the tools
+
+The image is named after the version of the tools in it. When neverwinter.nim releases a new version and you want
+it:
+
+1. In `~/content/builder/Dockerfile`, change `NWN_TOOLS_VERSION`, and `NWN_TOOLS_SHA256` to the checksum of the new
+   zip file (`sha256sum` of the zip you downloaded from the release page).
+2. In `content.env`, set `IMAGE=nwsync-builder:` and the new version.
+3. Stage as usual. `publish.sh` builds the new image first.
+
+The old image stays until you remove it (`docker rmi nwsync-builder:2.3.2`), so going back is changing the line in
+`content.env` back.
+
+#### 26. LAYONARA-ONLY. Seventeen gigabytes, again
 
 Our build runs on its own machine and takes about 21 minutes, because of the size of our content. The steps above
 are the same; ours just take longer, and our build machine has a disk sized for two copies of everything.
@@ -516,7 +657,8 @@ are the same; ours just take longer, and our build machine has a disk sized for 
 ### The agent playbook
 
 If you work with an AI agent, [`playbooks/07-haks-nwsync-tier2.md`](../playbooks/07-haks-nwsync-tier2.md) has these
-steps in a fixed shape it can follow. It asks before it moves the name, and before it restarts the game.
+steps in a fixed shape it can follow. It stages by itself, and asks before it moves the name, before it promotes or
+goes back (both restart the game), and before any tidy-up run by hand.
 
 ### Lessons
 
@@ -531,6 +673,19 @@ steps in a fixed shape it can follow. It asks before it moves the name, and befo
   right now is downloading exactly that version. We keep it, whatever its age.
 - **Give the control host its own key.** A read-only deploy key reads one repository and nothing else, and the game
   host accepts the same key for the files. Nobody's personal key has to live on a server.
+- **`latest` is read at every start, not only at releases.** A game that crashes, or a machine that reboots for an
+  update at night, starts again and hands out what `latest` says. That's why `latest` moves only in the promote,
+  together with the haks, and never while a version is merely built.
+- **The tool's own `latest` isn't careful enough to share.** Reading neverwinter.nim 2.3.2 for this chapter
+  (2026-11-26), I saw that its writer updates `latest` a moment before it writes the manifest that `latest` names.
+  `publish.sh` tells it not to touch `latest` (`--no-latest`), and `promote.sh` writes `latest` itself, in one
+  step, by renaming.
+- **Check the way players fetch.** A version can be complete on the control host's disk and still not downloadable:
+  the downloads service stopped, a wrong address, a missing file. On the test, with the service stopped, the check
+  failed with the web server's error, and nothing was staged. Only a download from the real address proves it.
+- **The tools' fetch tool can't do HTTPS (2026-11-26).** The released `nwn_nwsync_fetch` is built without HTTPS
+  support, so `nwsync-check` lists the files with `nwn_nwsync_print`, downloads them with `aria2c`, and lets
+  `nwn_nwsync_print --verify` compare every checksum.
 
 ### Tested
 
@@ -545,7 +700,7 @@ stood in for the content repository, and a temporary name in our own domain for 
 - the game restarted through Coolify, fetching `latest` from the new place and advertising it;
 - Caddy stopped on the game host; Coolify then started its own proxy there at the game's next restart; stopped in
   the dashboard, it stayed off through another restart;
-- `publish.sh` with no change and with a merged change; the files sent; `release.sh` in 8 seconds; the game
+- the first version of `publish.sh`, which also tidied up, with no change and with a merged change; the files sent; `release.sh` in 8 seconds; the game
   advertising the new version;
 - the tidy-up, with every file aged to 10 days: three more publishes removed the two oldest versions one at a time,
   kept the version the game was handing out although it was older than the newest three, removed the content files
@@ -556,3 +711,28 @@ stood in for the content repository, and a temporary name in our own domain for 
 
 Not tested: the downloads service's dashboard forms by hand (the service was made through Coolify's API), a publish
 while another runs, and a content repository the size of ours.
+
+The builder image, staging, promoting, going back and the tidy-up after them (steps 14, 15 and 20 to 25) were
+tested on 2026-11-26, with Coolify 4.7.5, neverwinter.nim 2.3.2 in the image on `ubuntu:24.04`, Docker on Ubuntu
+26.04, on another pair of fresh Hetzner cloud servers of the smallest shared type. They were brought to the state
+the steps above leave them in: the downloads service on the control host under a temporary name in our own domain,
+with a real certificate, and the game advertising from it. The game ran with tier 1's Compose rather than in
+Coolify, which `release.sh` handles the same way. A plain git repository on the control host stood in for the
+content repository on GitHub.
+
+- the image: built in 22 seconds, 284 MB; the first build in it; built again by `publish.sh` when missing;
+- staging: a changed table in the example hak; the new version written while `latest` and the game kept the old
+  one; the check over HTTPS from the control host and again from outside; the files on the game host checked;
+- a restart of the game while a version was staged: it kept handing out the old version;
+- the check failing: with a missing file and a damaged file (against a local copy), and with the downloads service
+  stopped, when `publish.sh` stopped and staged nothing, and `promote.sh` then refused;
+- promoting, three times: `latest` moved, `release.sh` run over SSH, the game handing out the new version, in 9 to
+  11 seconds in all, backup and restart included;
+- the tidy-up after the second release, with every file aged to 10 days and `KEEP=1`: the oldest version and the
+  content file only it used were removed, and the live version and the one to go back to were kept; with the game
+  stopped it removed nothing;
+- going back: `latest` and the files back to the version before in 9 seconds, the game handing it out, and that
+  version still downloading completely; a second `--back`, and a promote with nothing staged, both refused.
+
+Not tested: a release that fails halfway inside `promote.sh`, a new version of the tools, and the image being
+removed by Coolify's own clean-up (removed by hand instead).

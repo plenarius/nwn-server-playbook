@@ -1,62 +1,51 @@
 #!/usr/bin/env bash
-# Builds your custom content on the control host, publishes it for players' games, tidies old versions away,
-# and sends the files to the game host's ~/incoming for release.sh (chapter 16).
+# Builds your custom content on the control host and stages it: the new version is written beside the live one
+# and checked over HTTPS the way a player's game would fetch it, and the files wait on the game host. Players
+# see none of it until promote.sh.
 #
 #   publish.sh MODULE.mod       the module the content is for (its hak list decides what goes in, and the order)
 #
-# Settings, from the environment:
-#   CONTENT_DIR   your content repository, cloned on this machine     (default ~/myhaks)
-#   NWSYNC_DIR    the folder the downloads service serves             (default ~/nwsync)
-#   GAME          the game host's private address                     (default 10.77.0.2)
-#   GAME_USER     the deploy user there                               (default nwn)
-#   KEEP          how many of the newest versions always stay         (default 3)
-#
-# Old versions are removed only when they are not the newest KEEP, not what "latest" names, not what the live game
-# is offering right now, and older than 7 days. Only one publish runs at a time.
+# Settings: content.env beside this script (see content.env.example).
 set -euo pipefail
+module=$(realpath "${1:?give the module file, e.g. ~/mymodule.mod}")
+. "$(dirname "$0")/lib.sh"
+extra_mounts=(-v "$module:/module.mod:ro")
+rm -f "$STAGED_FILE"   # whatever was staged before is replaced by this run
 
-module=${1:?give the module file, e.g. ~/mymodule.mod}
-CONTENT_DIR=${CONTENT_DIR:-$HOME/myhaks}
-NWSYNC_DIR=${NWSYNC_DIR:-$HOME/nwsync}
-GAME=${GAME:-10.77.0.2}
-GAME_USER=${GAME_USER:-nwn}
-KEEP=${KEEP:-3}
-export PATH=$HOME/nwn-tools:$PATH
-
-exec 9> "$NWSYNC_DIR/.publish.lock"
-flock -n 9 || { echo "another publish is running" >&2; exit 1; }
-
-# 1. Build from the repository's newest commit.
+# 1. Build from the repository's newest commit, in the builder image.
 git -C "$CONTENT_DIR" pull -q --ff-only
-"$CONTENT_DIR/build.sh" 2>&1 | grep -v 'erf header'
+in_image /src/build.sh 2>&1 | grep -v 'erf header'
 
-# 2. Write the new version. The running game keeps offering the old one until its next start.
-# Its log is long, so it is shown only if writing fails.
+# 2. Write the new version beside the others. "latest" is not touched, so a game that starts now, even by
+# accident, still hands out the version that matches its haks. The tool's log is shown only if writing fails.
 log=$(mktemp)
-nwn_nwsync_write --description="$(basename "$module" .mod)" \
-  --path "$CONTENT_DIR/build/hak" --path "$CONTENT_DIR/build/tlk" "$NWSYNC_DIR" "$module" > "$log" 2>&1 ||
+json=$(in_image nwn_nwsync_write --no-latest --description="$(basename "$module" .mod)" \
+  --path /src/build/hak --path /src/build/tlk /nwsync /module.mod 2> "$log") ||
   { cat "$log" >&2; rm -f "$log"; exit 1; }
 rm -f "$log"
-new=$(cat "$NWSYNC_DIR/latest")
-echo "published $new"
+new=$(grep -o '"sha1": *"[0-9a-f]\{40\}"' <<< "$json" | grep -o '[0-9a-f]\{40\}' || true)
+[[ $new =~ ^[0-9a-f]{40}$ ]] || { echo "the NWSync tool did not name a version" >&2; exit 1; }
+echo "written $new"
 
-# 3. Send the files to the game host for release.sh.
-ssh "$GAME_USER@$GAME" 'mkdir -p ~/incoming'
-scp -q "$CONTENT_DIR"/build/hak/*.hak "$CONTENT_DIR"/build/tlk/*.tlk "$module" "$GAME_USER@$GAME:incoming/"
-echo "sent to $GAME:incoming; release them there with: sudo ./release.sh"
+# 3. Check it from outside, as a player's game would: fetch the version over HTTPS into an empty folder and
+# compare every file with its checksum.
+in_image nwsync-check "$NWSYNC_URL" "$new" ||
+  { echo "the check of $NWSYNC_URL failed: players could not download $new" >&2; exit 1; }
+echo "checked: $NWSYNC_URL hands out $new completely"
 
-# 4. Tidy: decide what must stay, then let the NWSync tool remove whatever no kept version uses.
-live=$(ssh "$GAME_USER@$GAME" 'docker logs "$(docker ps -q --filter label=com.docker.compose.service=nwserver)" 2>&1 |
-  grep -a "now advertising" | tail -n 1 | grep -o "[0-9a-f]\{40\}"' || true)
-[ -n "$live" ] || { echo "could not tell which version the game is offering; nothing removed"; exit 0; }
-keep=$(ls -1t "$NWSYNC_DIR"/manifests/ | grep -E '^[0-9a-f]{40}$' | head -n "$KEEP")
-for path in "$NWSYNC_DIR"/manifests/*; do
-  name=$(basename "$path"); hash=${name%.json}
-  [[ $hash =~ ^[0-9a-f]{40}$ ]] || continue
-  if [ "$hash" = "$new" ] || [ "$hash" = "$live" ] || grep -qx "$hash" <<< "$keep" ||
-     [ -n "$(find "$path" -mtime -7)" ]; then continue; fi
-  rm -f "$path"
-  [ "$name" = "$hash" ] && echo "removed old version $hash"
-done
-nwn_nwsync_prune --min-age 604800 "$NWSYNC_DIR" > /dev/null 2>&1
-echo "kept: the newest $KEEP, the game's current $live, and anything from the last 7 days"
+# 4. Send the files to the game host's ~/incoming for the release, replacing anything staged there before,
+# and check they arrived whole.
+files=("$CONTENT_DIR"/build/hak/*.hak "$CONTENT_DIR"/build/tlk/*.tlk "$module")
+ssh "$GAME_USER@$GAME" 'mkdir -p ~/incoming && rm -f ~/incoming/*.hak ~/incoming/*.tlk ~/incoming/*.mod'
+scp -q "${files[@]}" "$GAME_USER@$GAME:incoming/"
+want=$(cd "$(dirname "$module")" && sha256sum "$(basename "$module")"; cd "$CONTENT_DIR/build" && sha256sum hak/*.hak tlk/*.tlk)
+got=$(ssh "$GAME_USER@$GAME" 'cd ~/incoming && sha256sum *.mod *.hak *.tlk')
+[ "$(awk '{print $1}' <<< "$want" | sort)" = "$(awk '{print $1}' <<< "$got" | sort)" ] ||
+  { echo "the files on $GAME differ from the build; send them again" >&2; exit 1; }
+echo "sent ${#files[@]} files to $GAME:incoming, checked"
+
+# Only a version that passed every check is staged, ready for promote.sh.
+echo "$new" > "$STAGED_FILE"
+echo "staged $new"
+
+echo "players still get $(cat "$NWSYNC_DIR/latest" 2>/dev/null || echo nothing yet). To release: $(dirname "$0")/promote.sh"
