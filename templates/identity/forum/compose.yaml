@@ -1,0 +1,53 @@
+# The forum (chapter 11, tier 3), as a Coolify "Docker Compose" application built from the forum folder of your
+# identity repository. Two containers: Flarum, and its own MariaDB. Coolify asks you for every ${...} below.
+# The forum's address goes on the "forum" service in Coolify (Domains: https://forum.example.org).
+services:
+  forum:
+    build: .
+    restart: unless-stopped
+    environment:
+      FORUM_URL: ${FORUM_URL:?}
+      FORUM_TITLE: ${FORUM_TITLE:-My World forum}
+      # The first administrator: use the email of your own Authentik account. Your first sign-in through
+      # Authentik lands in this account, because Authentik vouches for that address.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?}
+      DB_HOST: mariadb
+      DB_NAME: forum
+      DB_USER: forum
+      DB_PASSWORD: ${DB_PASSWORD:?}
+      # Signing in through Authentik (its blueprint 10-sites.yaml has the other half).
+      AUTH_ISSUER: ${AUTH_ISSUER:?}
+      AUTH_CLIENT_SECRET: ${FORUM_CLIENT_SECRET:?}
+      # The shared header and the sign-in marker (chapter 11, tier 3).
+      SITE_URL: ${SITE_URL:?}
+      SSO_COOKIE_DOMAIN: ${SSO_COOKIE_DOMAIN:?}
+    volumes:
+      - assets:/var/www/flarum/public/assets
+      - storage:/var/www/flarum/storage
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  mariadb:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: forum
+      MARIADB_USER: forum
+      MARIADB_PASSWORD: ${DB_PASSWORD:?}
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    volumes:
+      - database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+    labels:
+      # Chapter 12's hook 20-site-dbs.sh dumps every database with these two labels, nightly.
+      backup.dump: mariadb
+      backup.name: forum
+
+volumes:
+  assets:
+  storage:
+  database:

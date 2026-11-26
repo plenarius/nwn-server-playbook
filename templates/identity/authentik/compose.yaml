@@ -1,0 +1,78 @@
+# Authentik on the control host (chapter 11, tier 3), as a Coolify "Docker Compose" application built from your
+# identity repository. Three containers: its database, its web server and its worker (Authentik needs no Redis
+# since 2025.10). Coolify asks you for every ${...} below in the application's Environment Variables; the ones
+# ending in :? stop the start if they're missing.
+#
+# The sign-in host goes on the "server" service in Coolify (Domains: https://auth.example.org); Coolify finds its
+# port, 9000, by itself.
+services:
+  postgresql:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_DB: authentik
+      POSTGRES_PASSWORD: ${PG_PASS:?}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d authentik -U authentik"]
+      interval: 5s
+      retries: 30
+    labels:
+      # Chapter 12's hook 20-site-dbs.sh dumps every database with these two labels, nightly.
+      backup.dump: postgres
+      backup.name: authentik
+
+  server:
+    build: .
+    restart: unless-stopped
+    command: server
+    environment: &env
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?}
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+      # The admin account (akadmin) gets this password and address on the very first start. Without them its
+      # set-up page stays open to whoever finds it first. Change the password after signing in; this one is
+      # never read again.
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:?}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL:?}
+      # Mail for invitations and password resets. Leave empty to test without mail.
+      AUTHENTIK_EMAIL__HOST: ${MAIL_HOST:-}
+      AUTHENTIK_EMAIL__PORT: ${MAIL_PORT:-587}
+      AUTHENTIK_EMAIL__USERNAME: ${MAIL_USER:-}
+      AUTHENTIK_EMAIL__PASSWORD: ${MAIL_PASSWORD:-}
+      AUTHENTIK_EMAIL__USE_TLS: "true"
+      AUTHENTIK_EMAIL__FROM: ${MAIL_FROM:-}
+      # Read by the blueprints (!Env). The three sites' addresses, and the secret each site signs in with.
+      SITE_URL: ${SITE_URL:?}
+      FORUM_URL: ${FORUM_URL:?}
+      WIKI_URL: ${WIKI_URL:?}
+      AUTH_HOST: ${AUTH_HOST:?}
+      WEBSITE_CLIENT_SECRET: ${WEBSITE_CLIENT_SECRET:?}
+      FORUM_CLIENT_SECRET: ${FORUM_CLIENT_SECRET:?}
+      WIKI_CLIENT_SECRET: ${WIKI_CLIENT_SECRET:?}
+    volumes:
+      - media:/data
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: worker
+    environment: *env
+    volumes:
+      - media:/data
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
+volumes:
+  database:
+  media:

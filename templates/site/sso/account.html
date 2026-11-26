@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Your account: My World</title>
+  <link rel="stylesheet" href="/embed/shell.css">
+  <style>
+    :root { --accent: #8a5a1c; --ink: #1d1a16; --soft: #5d564c; --paper: #faf7f2; --line: #ddd5c8; }
+    @media (prefers-color-scheme: dark) {
+      :root { --accent: #e0b070; --ink: #ece6dc; --soft: #a79f92; --paper: #171512; --line: #37322b; }
+    }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 1.0625rem/1.65 Georgia, "Iowan Old Style", serif; }
+    main { max-width: 38rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+    h1 { font-size: 2rem; margin: 0 0 1rem; }
+    .soft { color: var(--soft); }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<!--# include virtual="/embed/header.html" -->
+<main>
+  <h1>Your account</h1>
+  <p id="who" class="soft">Looking…</p>
+  <p><a href="https://auth.example.org/if/user/">Change your password or set up a second step</a></p>
+</main>
+<script src="/embed/user.js"></script>
+<script>
+  fetch('/auth/me').then(function (r) { return r.json(); }).then(function (me) {
+    var p = document.getElementById('who');
+    if (!me.signedIn) { location.href = '/auth/login?returnTo=/account'; return; }
+    p.textContent = 'Signed in as ' + me.name + ' (' + me.user + ')' + (me.team ? ', on the team.' : '.');
+    p.className = '';
+  });
+</script>
+</body>
+</html>
