@@ -96,7 +96,7 @@ def check_https(name, c, s):
 
 
 def check_report(name, c, s):
-    """Ask the game host, over SSH, for its disk use and its newest backup (watchdog-report.sh answers)."""
+    """Ask the game host, over SSH, for its disk use and its newest backups (watchdog-report.sh answers)."""
     try:
         out = subprocess.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", c["ssh"]],
                              capture_output=True, text=True, timeout=30)
@@ -105,23 +105,47 @@ def check_report(name, c, s):
     if out.returncode != 0:
         return [(name, f"no report: SSH said {(out.stderr.strip().splitlines() or ['nothing'])[-1][:150]}")]
     results = [(name, None)]
-    limit, hours = s.getint("disk_percent", 90), s.getint("backup_hours", 26)
+    limit = s.getint("disk_percent", 90)
     for line in out.stdout.splitlines():
         f = line.split()
         if len(f) == 3 and f[0] == "disk":
             used = int(f[1])
             results.append((f"{name} disk {f[2]}", f"{used}% full" if used >= limit else None))
-        elif len(f) == 2 and f[0] == "backup":
-            if f[1] == "none":
-                results.append((f"{name} backup", "no backup at all"))
-                continue
-            made = datetime.datetime.strptime(f[1], "%Y%m%d-%H%M%S").replace(tzinfo=datetime.timezone.utc).timestamp()
-            age = (time.time() - made) / 3600
-            results.append((f"{name} backup", f"the newest is {age:.0f} hours old, from {when(made)}" if age > hours else None))
+        elif len(f) == 2 and f[0] in STAMPS:
+            label, setting, default = STAMPS[f[0]]
+            results.append((f"{name} {label}", stamp_problem(f[1], s.getfloat(setting, default))))
     return results
 
 
-CHECKS = {"game": check_game, "https": check_https, "report": check_report}
+# The report's lines that carry a time (YYYYmmdd-HHMMSS, UTC), what the alerts call them, and how old they may get.
+STAMPS = {
+    "backup": ("backup", "backup_hours", 26),       # tier 1's nightly backup
+    "borg": ("borg backup", "borg_hours", 26),      # chapter 12, tier 2: the last good borg backup
+    "vault": ("vault history", "vault_hours", 2),   # chapter 12, tier 3: the vault history's last good run
+}
+
+
+def stamp_problem(stamp, hours):
+    if stamp == "none":
+        return "none made yet"
+    made = datetime.datetime.strptime(stamp, "%Y%m%d-%H%M%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+    age = (time.time() - made) / 3600
+    if age <= hours:
+        return None
+    return f"the newest is {f'{age:.0f} hours' if age >= 2 else f'{age * 60:.0f} minutes'} old, from {when(made)}"
+
+
+def check_stamp(name, c, s):
+    """A time written in a file on this machine, such as the control host's own last borg backup."""
+    try:
+        with open(c["file"]) as f:
+            stamp = f.read().strip() or "none"
+    except FileNotFoundError:
+        stamp = "none"
+    return [(name, stamp_problem(stamp, c.getfloat("hours", 26)))]
+
+
+CHECKS = {"game": check_game, "https": check_https, "report": check_report, "stamp": check_stamp}
 
 
 def run_checks(cfg):

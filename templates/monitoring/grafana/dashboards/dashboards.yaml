@@ -1,0 +1,11 @@
+# Grafana reads the dashboards in json/ and keeps them as the files say. Edit the files, not the dashboards:
+# a change made in Grafana's editor can't be saved over a file-provisioned dashboard, and git is where they live.
+apiVersion: 1
+providers:
+  - name: game
+    folder: Game
+    type: file
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

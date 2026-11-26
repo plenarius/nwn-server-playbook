@@ -22,6 +22,10 @@ disk_percent = 90
 # Warn when the newest backup is older than this many hours. The backup runs nightly with up to ten minutes of
 # spread, so 26 allows for a late one and still tells you the same morning when one is missed.
 backup_hours = 26
+# Chapter 12, tiers 2 and 3, once installed: the same for the last good borg backup, and for the character vault's
+# history, which runs every 30 minutes and so may be 2 hours quiet before something is wrong.
+borg_hours = 26
+vault_hours = 2
 
 [game]
 # The game server, asked over UDP the way a player's game asks. Its public name or address.
@@ -37,7 +41,14 @@ url = https://www.example.org/
 expect =
 
 [game host]
-# Disk space and last night's backup, reported by watchdog-report.sh on the game host over SSH.
+# Disk space and the newest backups, reported by watchdog-report.sh on the game host over SSH.
 # The SSH key only runs that script there (chapter 13, step 5). Over the private network from chapter 1.
 check = report
 ssh = nwn@10.77.0.2
+
+# Chapter 12, tier 2: the control host's own borg backup, if it has one. The watchdog runs here, so it reads the
+# time borg-backup.sh writes after each good backup, with no SSH.
+#[control host borg backup]
+#check = stamp
+#file = /var/lib/nwn-borg/last-archive
+#hours = 26

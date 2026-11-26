@@ -1,0 +1,54 @@
+# One alert, into the same channel as the watchdog (chapter 13, tier 2): the game's main loop stalled for over a
+# minute. ThreadWatchdog logs a LongStall each period (15 s) the loop doesn't move, so more than three in two minutes
+# means players have been frozen for a minute. The watchdog can't see this: a stalled server still answers its
+# question. The webhook address is read from secrets/alert-webhook, never written here.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: alerts
+    receivers:
+      - uid: alerts-webhook
+        type: discord
+        settings:
+          url: $__file{/run/secrets/alert-webhook}
+          use_discord_username: true
+          message: '{{ if eq .Status "firing" }}ALERT game: the main loop has stalled for over a minute ({{ len .Alerts.Firing }} alert){{ else }}OK game: the main loop is moving again{{ end }}'
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: alerts
+    group_by: ["alertname"]
+    group_wait: 0s
+    group_interval: 1m
+    repeat_interval: 168h     # once per stall, not again every few hours
+
+groups:
+  - orgId: 1
+    name: game
+    folder: Game
+    interval: 30s
+    rules:
+      - uid: game-long-stall
+        title: Game stalled
+        condition: over
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast   # if Loki itself is away, say nothing rather than something wrong
+        data:
+          - refId: stalls
+            datasourceUid: nwn-loki
+            relativeTimeRange: { from: 120, to: 0 }
+            model:
+              refId: stalls
+              queryType: instant
+              expr: 'sum(count_over_time({service="nwserver"} |= "ThreadWatchdog detected a LongStall" [2m]))'
+          - refId: over
+            datasourceUid: __expr__
+            model:
+              refId: over
+              type: threshold
+              expression: stalls
+              conditions:
+                - evaluator: { type: gt, params: [3] }

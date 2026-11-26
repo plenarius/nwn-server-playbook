@@ -1,0 +1,64 @@
+// Grafana Alloy on the game host: sends every container's log (the game and NWNX, the database, the web server)
+// to Loki on the control host, over the private network. Chapter 13, tier 3. Used by compose.logs.yaml.
+//
+// It reads Docker's own log files rather than asking Docker for a stream, because Docker can't stream the log of
+// a container with a terminal (tty: true), and the game's container has one so you can type at its console.
+
+// The containers on this machine, found through Docker, for their names.
+discovery.docker "local" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// Each log line gets three labels: the machine, the container's name and its Compose service.
+// And each container's log file, which Docker keeps at a path named after the container's id.
+discovery.relabel "names" {
+  targets = discovery.docker.local.targets
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    target_label = "host"
+    replacement  = sys.env("LOG_HOST")
+  }
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    target_label  = "__path__"
+    replacement   = "/var/lib/docker/containers/$1/$1-json.log"
+  }
+}
+
+local.file_match "logs" {
+  path_targets = discovery.relabel.names.output
+}
+
+loki.source.file "containers" {
+  targets    = local.file_match.logs.targets
+  forward_to = [loki.process.docker.receiver]
+}
+
+// Docker writes each line wrapped in a little JSON, with its time: unwrap it and keep the time. Then take out
+// what a terminal needs and a search doesn't: NWNX's colour codes and the line ends of a tty. And forget the file's
+// name: it changes each time the container is made again, and Loki would start a new stream for every one.
+loki.process "docker" {
+  stage.docker {}
+  stage.replace {
+    expression = "(\\x1b\\[[0-9;]*m|\\r(\\n)?$)"
+    replace    = ""
+  }
+  stage.label_drop {
+    values = ["filename"]
+  }
+  forward_to = [loki.write.control.receiver]
+}
+
+loki.write "control" {
+  endpoint {
+    url = sys.env("LOKI_URL")
+  }
+}

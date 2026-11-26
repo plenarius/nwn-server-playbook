@@ -1,8 +1,9 @@
 # Chapter 13. Monitoring and alerting
 
-**Status:** tier 2 is written and tested. Tier 1 is covered by chapter 4: the game's container checks itself every
-30 seconds, and `docker compose ps` shows you the answer. Tier 3 (the game's own numbers in dashboards, its logs
-in one place, and request traces) is not written yet.
+**Status:** tiers 2 and 3 are written and tested. Tier 1 is covered by chapter 4: the game's container checks itself
+every 30 seconds, and `docker compose ps` shows you the answer. Tier 2 is an outside watchdog and one alert channel;
+tier 3, further down, adds the game's own numbers in dashboards, its logs searchable in one place, and request
+traces, all on the control host and on the private network only.
 
 **Tier 1, in one paragraph.** With one machine and one person, [chapter 4's health check](04-game-server.md#4-generic-start-it)
 is enough: the container asks its own server the question a player's game asks, and shows `(healthy)` when the
@@ -161,14 +162,15 @@ The public key is safe to carry around like this; the private half never leaves 
 ssh nwn@CONTROL 'sudo -u nwn-watchdog nwn-watchdog status'
 ```
 
-You'd like six lines, each starting with `ok`. A `FAIL` says what it saw: fix that first, or you'll get an alert
+You'd like six lines, each starting with `ok` (seven once chapter 12's borg backup has run with this version of
+its script: `game host borg backup`). A `FAIL` says what it saw: fix that first, or you'll get an alert
 for it a few minutes after you start. Then:
 
 ```sh
 ssh nwn@CONTROL 'sudo systemctl enable --now nwn-watchdog.timer'
 ```
 
-Within two minutes the channel says "started watching 6 checks: all passing". That's the last you'll hear from it
+Within two minutes the channel says "started watching 6 checks: all passing" (or 7). That's the last you'll hear from it
 until something changes, or until next week.
 
 #### 7. GENERIC. What an alert looks like, and what to do with it
@@ -302,3 +304,336 @@ What I tested, each with the messages it sent checked in the stand-in's log:
 Not tested: a real Discord channel (the stand-in checked the same rules Discord documents), real Slack or ntfy,
 step 9's second copy on the game host, and a week of running for the weekly message: I tested its first message,
 and its timing is one comparison in the script.
+
+---
+
+## Tier 3. The game's numbers, its logs and traces, in one place
+
+### What you learn
+
+Tier 2 tells you the game is down. This tier helps with the harder question: why it's slow. When players say
+"it lagged around nine", you'll be able to look at nine o'clock and see how many times a second the game managed
+to run its loop, which scripts took the time, what the database was doing, and what the game said in its log.
+
+When you're done, you'll have, all on the control host:
+
+- **the game's numbers**: NWNX's profiler measures the game from inside, and its Metrics_InfluxDB plugin sends
+  what it measured, every second, to InfluxDB;
+- **every container's log** from the game host, the game and NWNX included, in Loki, searchable by word;
+- **request traces** from the operations API (chapter 9) in Tempo: one slow call, broken into each SSH command
+  and request it made;
+- **Grafana**, with a dashboard for the game kept in git, and one alert, a stalled game, into tier 2's channel;
+- **limits on how long each is kept**, sized for a small server: 14 days of raw numbers, 180 days of one-minute
+  summaries, 14 days of logs, 3 days of traces;
+- **nothing on a public address.**
+
+**Time:** about an hour. The stack takes about 650 MB of memory on the control host, and the log shipper about
+40 MB on the game host.
+
+### What Layonara does
+
+- **Grafana with six dashboards** (health, performance, operations, status for the community, a DM view, and one
+  for our crafting system), provisioned from a git repository.
+- **InfluxDB 1.x** takes the profiler's numbers over UDP from NWNX's Metrics_InfluxDB plugin, along with the
+  database's query times and the ThreadWatchdog's stalls. The profiler's script timings are by far the biggest
+  part: about 88,000 of our 198,000 series. So three continuous queries roll them up per minute into a retention
+  policy of their own, kept for a year, and the dashboards read those.
+- **Loki**, fed by a log shipper on the game host, holds the game's log; our dashboards read warnings and errors
+  by plugin, the slowest database queries and the stalls straight out of it.
+- **Tempo** keeps 7 days of traces from our website and the operations API.
+- **One alert rule** in Grafana: more than three LongStalls in two minutes, to the same Discord channel as the
+  watchdog and the backups.
+- It all runs as Coolify services on our control host, reached over the private network.
+
+This tier is the same shape, smaller: one dashboard instead of six, one rollup for the tick rate and one for the
+scripts, and shorter retention, because a new world's control host is a small machine with Coolify on it too.
+
+### The human playbook
+
+You need tier 2 of this chapter (the alert channel), chapter 1's private network, and for the traces, chapter 9's
+operations API. The examples use `GAME`, `CONTROL`, `10.77.0.1` and `10.77.0.2` as before.
+
+The files are in [`templates/monitoring`](../templates/monitoring) for the control host:
+[`compose.yaml`](../templates/monitoring/compose.yaml), each store's settings
+([`influxdb.conf`](../templates/monitoring/influxdb.conf) with [`init.iql`](../templates/monitoring/init.iql),
+[`loki.yaml`](../templates/monitoring/loki.yaml), [`tempo.yaml`](../templates/monitoring/tempo.yaml)), and
+Grafana's folder: datasources, the dashboard and the alert. For the game host, in `templates/game`:
+[`.env.metrics.example`](../templates/game/.env.metrics.example),
+[`compose.logs.yaml`](../templates/game/compose.logs.yaml) and [`logs.alloy`](../templates/game/logs.alloy).
+
+#### 11. GENERIC. Know the four pieces, and the roads between them
+
+```
+game host                                         control host
+  nwserver + NWNX ── UDP 8089, numbers ────────►  InfluxDB  ─┐
+  Alloy (reads the containers' logs) ── 3100 ──►  Loki      ─┼─► Grafana ◄── you, through an SSH tunnel
+                                                  Tempo     ─┘
+  ops API (on the control host) ── 4318, traces ─► Tempo
+```
+
+- **InfluxDB** keeps numbers over time. NWNX speaks its language, so nothing sits in between.
+- **Loki** keeps log lines, labelled by machine and container, and searches them.
+- **Tempo** keeps traces: one request's path through a service, timed piece by piece.
+- **Grafana** draws all three, and sends the one alert.
+
+Every arrow travels on the private network. The doors the game host uses (8089, 3100 and 4318) are opened on the
+control host's private address only, and Grafana on `127.0.0.1` only, so you reach it through SSH. This matters
+more than usual: Docker's published ports go around the firewall from chapter 1, so the address written in front
+of each port in `compose.yaml` is what keeps it off the internet.
+
+#### 12. GENERIC. Start the stack on the control host
+
+```sh
+scp -r templates/monitoring nwn@CONTROL:monitoring
+ssh nwn@CONTROL
+cd ~/monitoring
+sudo install -d -o 1500 -g 1500 data/influxdb
+sudo install -d -o 10001 -g 10001 data/loki data/tempo
+sudo install -d -o 472 -g 472 data/grafana
+sudo install -d -m 750 -g 472 secrets
+sudo sh -c 'umask 027; openssl rand -base64 18 > secrets/grafana-admin-password; chgrp 472 secrets/grafana-admin-password'
+```
+
+The data folders belong to the users each program runs as inside its container. The last line makes Grafana's
+admin password; read it with `sudo cat secrets/grafana-admin-password`, and put it in your password manager.
+
+The alert goes into tier 2's channel, so Grafana needs the webhook address too. As in tier 2, this reads it from
+your keyboard:
+
+```sh
+read -rs -p "Webhook address: " u; echo; printf '%s\n' "$u" | sudo sh -c 'umask 027; cat > secrets/alert-webhook; chgrp 472 secrets/alert-webhook'; unset u
+docker compose up -d
+docker compose ps
+```
+
+Four services, each `Up`. If your private address isn't `10.77.0.1`, put `MONITOR_ADDRESS=` and yours in a file
+`.env` beside `compose.yaml` first.
+
+What `init.iql` set up, on InfluxDB's first start:
+
+```sh
+docker compose exec influxdb influx -execute 'SHOW RETENTION POLICIES ON nwn'
+```
+
+`raw`, 14 days, the default, where everything arrives; and `rollup_1m`, 180 days, which two continuous queries
+fill once a minute with the tick rate's worst and average, and each script's total time. The raw numbers go after
+two weeks; the summaries stay for half a year.
+
+#### 13. GENERIC. Check nothing is on a public address
+
+On the control host:
+
+```sh
+sudo ss -ltnup | grep -E ':(3000|3100|4318|8089) '
+```
+
+Four lines: `127.0.0.1:3000`, and `10.77.0.1` for the other three. Then from your own computer, the outside:
+
+```sh
+for p in 3000 3100 4318 8086; do timeout 4 bash -c "</dev/tcp/CONTROL/$p" 2>/dev/null && echo "$p OPEN" || echo "$p closed"; done
+```
+
+Each one `closed`. On the test, a number sent to the public address's port 8089 never arrived, and one sent to the
+private address did.
+
+#### 14. GENERIC. Send the game's numbers
+
+On the game host, the settings in [`.env.metrics.example`](../templates/game/.env.metrics.example) switch on four
+plugins and point the numbers at the control host:
+
+```sh
+scp templates/game/.env.metrics.example templates/game/compose.logs.yaml templates/game/logs.alloy nwn@GAME:game/
+ssh nwn@GAME 'cd game && cat .env.metrics.example >> .env && rm .env.metrics.example && grep -E "^NWNX_(PROFILER|METRICS|THREADWATCHDOG|SERVERLOG)" .env'
+```
+
+- **Profiler** measures: the game loop's rate each second (the *tick rate*), the time in each script, AI and
+  pathfinding, the network messages.
+- **Metrics_InfluxDB** sends those numbers over UDP. UDP never waits: if the control host is away, the numbers are
+  lost and the game carries on, which is the right way round.
+- **ThreadWatchdog** notices when the game loop hasn't moved for 15 seconds, logs a `LongStall`, and counts it.
+- **ServerLogRedirector** copies the game's own log into the container's log, so Loki gets it.
+
+With chapter 5's database, `NWNX_SQL_QUERY_METRICS=y` adds every query's time as well.
+
+The plugins load when the game starts, so this needs a restart: pause the watchdog first (tier 2, step 7), and
+pick a quiet moment.
+
+#### 15. GENERIC. Send the logs
+
+The log shipper is [Grafana Alloy](https://grafana.com/docs/alloy/), as one more Compose file beside the game.
+Add `:compose.logs.yaml` to the end of the `COMPOSE_FILE` line in `.env`, then start everything:
+
+```sh
+ssh nwn@GAME 'cd game && sed -i "s|^COMPOSE_FILE=.*|&:compose.logs.yaml|" .env && grep ^COMPOSE_FILE .env'
+ssh nwn@CONTROL 'sudo -u nwn-watchdog nwn-watchdog pause 10'
+ssh nwn@GAME 'cd game && docker compose up -d && docker compose ps'
+```
+
+The game comes back `(healthy)`, with `alloy` beside it. Alloy finds the containers through Docker and reads
+their log files, labels each line with `host`, `container` and `service`, and sends them to Loki. It reads the files
+rather than asking Docker for a stream on purpose: the game's container has a terminal attached (so you can type at
+its console), and Docker can't stream the log of a container with a terminal. My first version did, and every log
+arrived except the game's.
+
+A word on trust: Alloy reads Docker's socket, read-only. That's still a powerful thing to hand a program, so it's
+Grafana's own, pinned to one version, and it listens on nothing but `127.0.0.1`.
+
+Then `resume` the watchdog, or let the pause run out.
+
+#### 16. GENERIC. Look at it
+
+Grafana is on the control host's `127.0.0.1`, so open a tunnel from your computer:
+
+```sh
+ssh -N -L 3000:localhost:3000 nwn@CONTROL
+```
+
+and visit `http://localhost:3000`, user `admin`, the password from step 12. **Dashboards**, **Game**, **Game
+server**:
+
+![The Game server dashboard on the test, a few minutes after the plugins were switched on](images/13-game-server.png)
+
+- **Tick rate, worst second**: the fewest loops the game managed in one second. An idle server runs about 100;
+  single digits are what players feel as lag. The dip to 1 on the test is the restart.
+- **Long stalls**: anything above 0 is worth a look.
+- **Script time, top 10**: where the game's time goes, script by script.
+- **Database queries** and **query time**: how often the module asks, and how long it waits.
+- **Tick rate, per minute**: the same numbers from the 180-day summary, for "has it got slower since spring?".
+- **Game log**: the game's log, newest first. Type in **Search the log** to filter it.
+
+**Explore**, with **Loki**, searches every container's log: `{service="nwserver"} |= "error"` for the game,
+`{service="mariadb"}` for the database.
+
+The dashboard is a file, [`game-server.json`](../templates/monitoring/grafana/dashboards/json/game-server.json),
+and Grafana keeps it as the file says. To change it, change the file (or edit in Grafana, **Export**, **Export as
+JSON**, and save that over the file), commit it, and copy it to the control host; Grafana reads it within a minute.
+
+#### 17. ADAPT. Traces from the operations API
+
+Change: skip this step if you don't run chapter 9's operations API.
+
+The operations API speaks OpenTelemetry, the common language for traces, and stays silent until it's told where
+to send them. In Coolify, open its service, **Environment Variables**, and add two:
+
+```
+OTEL_EXPORTER_OTLP_ENDPOINT=http://10.77.0.1:4318
+OTEL_SERVICE_NAME=nwn-ops-api
+```
+
+and redeploy it. Its log then says `Tracing on: spans to http://10.77.0.1:4318`. Ask it something (chapter 11's
+status page does, whenever its short cache runs out), and in Grafana, **Explore**, **Tempo**, **Search**, pick `nwn-ops-api`.
+
+Here is the first status call after it started, on the test:
+
+![One status call to the operations API, broken into its SSH commands and requests](images/13-trace.png)
+
+865 ms, and the trace says where: about 650 ms of it is opening SSH connections to the game host, four at once.
+The next calls, with the connections open, took 126 ms. That's the kind of question traces answer.
+
+Never set `OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_*`: the API's keys travel in a header, and would land in
+every trace. Anything else that speaks OTLP over HTTP can send its traces to the same address.
+
+#### 18. GENERIC. One alert: a stalled game
+
+A stalled game still answers the watchdog's question; only the game loop has stopped. So Grafana watches for that
+one thing, in [`alerts.yaml`](../templates/monitoring/grafana/alerting/alerts.yaml): more than three LongStalls in
+two minutes, which means players have been frozen for a minute. It posts into tier 2's channel:
+
+```
+ALERT game: the main loop has stalled for over a minute (1 alert)
+```
+
+and when the stalls stop, `OK game: the main loop is moving again`. Grafana sends it as Discord's webhooks expect.
+For another channel, change `type: discord` to `slack` or `webhook`; Grafana's documentation lists the rest.
+
+Grafana's **Alerting**, **Alert rules** shows the rule, `Game stalled`, in the state `Normal`.
+
+#### 19. GENERIC. Know what is kept, and for how long
+
+| Store | Kept | Where it's set | On the test, idle |
+|---|---|---|---|
+| InfluxDB, raw | 14 days | `init.iql`, policy `raw` | 0.9 MB after an hour |
+| InfluxDB, per minute | 180 days | `init.iql`, policy `rollup_1m` | (in the line above) |
+| Loki | 14 days | `loki.yaml`, `retention_period` | 0.3 MB |
+| Tempo | 3 days | `tempo.yaml`, `block_retention` | 1.4 MB |
+| Grafana | its settings only | | 1.7 MB |
+
+An idle test server tells you little about a busy world: players make network messages, scripts and log lines.
+Ours, busy, has its raw numbers as the largest part by far. Look again after your first week with players
+(`sudo du -sh ~/monitoring/data/*`) and shorten the raw policy if the disk asks you to:
+
+```sh
+docker compose exec influxdb influx -execute 'ALTER RETENTION POLICY raw ON nwn DURATION 7d'
+```
+
+Loki keeps nothing forever: its compactor removes what's older than `retention_period`. Without
+`retention_enabled: true` it would keep everything, whatever the period says, so leave that line alone.
+
+None of this is in tier 2's borg backup, on purpose. If the control host is lost, the history of the numbers goes
+with it, and the dashboards and settings come back from git.
+
+#### 20. LAYONARA-ONLY. Dashboards for our own systems
+
+Our status, DM and crafting dashboards read our own database tables (who's online, crafting rolls and recipes)
+straight from MariaDB, and a player-count line comes from a plugin of our own. They are worth having, and they're
+ours: a Grafana MySQL datasource and a few queries against your own tables is how you'd make yours.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/13-monitoring-tier3.md`](../playbooks/13-monitoring-tier3.md) has these
+steps in a fixed shape it can follow. You place the webhook address and keep Grafana's password; the agent never
+reads either, and it asks you before the game's restart.
+
+### Lessons
+
+- **The profiler's script timings are most of the data (Layonara, 2026-11-19).** One point a second for each
+  script, area and object type adds up: 88,000 of our 198,000 series, and an hour of them took 8 seconds to read on
+  the game host's two cores. Per-minute summaries in a policy of their own made the dashboards fast again, and
+  they are why `init.iql` makes one from the start.
+- **Give a provisioned contact point a fixed `uid` (Layonara, 2026-11-18).** An earlier version of our alert file
+  had none, so Grafana made one, kept it in its own database, and later posted every alert twice. The file here
+  names its uid.
+- **Docker's ports go around the firewall.** A port published as `3000:3000` is open to the internet whatever
+  `ufw` says. Write an address in front of every published port, and check from outside (step 13).
+- **Grafana downloads more than you asked for (from the test, 2026-11-26).** Its first start fetched over half a
+  gigabyte of plugins none of these dashboards use, and pushed it to its memory limit.
+  `GF_PLUGINS_PREINSTALL_DISABLED` stops that.
+- **A log stream can't follow a terminal (from the test, 2026-11-26).** The game's container has `tty: true`, and
+  Docker can't stream such a container's log, so a shipper that asks Docker for streams silently gets everything
+  except the game. Reading Docker's log files works for every container.
+- **Numbers over UDP are allowed to be lost.** If the control host reboots, the game doesn't notice, and the
+  graph has a gap. That's the right trade for a game server: nothing about monitoring should be able to slow the
+  game down.
+
+### Tested
+
+On 2026-11-26, on the same two fresh Hetzner cloud servers as chapter 12's tier 3, smallest shared type, Ubuntu
+26.04: the game host with `nwnxee/unified:ed79330`, MariaDB and the example module, and the control host with
+Coolify 4.7.5, tier 2's watchdog, and chapter 9's operations API (built from commit `e77f32c`). Images: InfluxDB
+1.13.2, Loki 3.7.9, Tempo 3.1.1, Grafana 13.3.0, Alloy 1.21.3.
+
+- the whole install twice, the second time from nothing after the Roll back, following the agent playbook command
+  by command, its Verify included;
+- the stack started from the template; the retention policies and continuous queries in place; Grafana's three
+  datasources answering, the dashboard and the alert rule provisioned;
+- **the game's numbers**: the four plugins loaded, and InfluxDB receiving the tick rate, script timings, AI,
+  network messages and SQL queries within a minute; the per-minute summary filled; the dashboard drawn, and
+  photographed with a headless browser through the SSH tunnel (the picture in step 16);
+- **the logs**: every container's log in Loki, the game's own log lines included, searchable by word, and a test
+  container's 19 lines arriving within the minute;
+- **the traces**: the operations API's calls in Tempo with their SSH spans (the picture in step 17). For the test
+  the API ran with plain `docker compose` from chapter 9's template and the two variables added, not through
+  Coolify;
+- **the alert**: four LongStall lines written into Loki by hand, labelled as the game's: one alert in the stand-in
+  channel, then one "OK";
+- **nothing public**: from outside, every port closed and a number sent to the public UDP port ignored; on the
+  host, only the private address and `127.0.0.1` listening;
+- **a reboot of the control host**: the stack came back on the private address by itself, Alloy carried on
+  sending, and the numbers resumed.
+
+The stand-in channel was the small receiver from tier 2, on the control host; for Grafana to reach it there, the
+test needed a firewall rule for Docker's network that a real Discord webhook doesn't.
+
+Not tested: a real LongStall (the alert was fed written lines; the game didn't stall), a busy world's data sizes
+(the test server had no players), months of retention running out, real Discord, and the operations API's tracing
+through Coolify's environment page.

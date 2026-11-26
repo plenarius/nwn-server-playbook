@@ -86,7 +86,8 @@ whatever is asked.
 ssh $DEPLOY_USER@$CONTROL 'sudo -u nwn-watchdog nwn-watchdog status'
 ```
 
-Success: six lines, each starting with `ok`. Any `FAIL`: report it to the person and stop; do not start the timer
+Success: six lines, each starting with `ok` (seven, with `game host borg backup`, once chapter 12's borg
+backup has run with its current script). Any `FAIL`: report it to the person and stop; do not start the timer
 with a failing check.
 
 ```sh
@@ -103,7 +104,7 @@ Within three minutes:
 ssh $DEPLOY_USER@$CONTROL 'sudo journalctl -u nwn-watchdog --no-pager -o cat | grep -E "^(started|still) watching|checks, " | tail -2'
 ```
 
-Success: `started watching 6 checks: all passing` and `6 checks, 0 failing`. Ask the person to confirm the same
+Success: `started watching 6 checks: all passing` and `6 checks, 0 failing` (7 with the borg line of step 5). Ask the person to confirm the same
 message arrived in their channel.
 
 To prove an alert end to end without touching the game, add a check that cannot pass, wait for one alert, then
