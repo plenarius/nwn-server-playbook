@@ -1,0 +1,28 @@
+# /etc/nwn-borg/borg.conf on the game host. Chapter 12, tier 2. Read by nwn-borg-backup as a shell file.
+
+# The machine's name, used in every archive's name.
+NAME=game
+
+# Where its repository lives: one repository per machine. For the storage machine of chapter 12 this is
+#   ssh://borg@STORAGE/./repos/game
+# and for a Hetzner Storage Box (SSH on port 23, a home folder of its own):
+#   ssh://uXXXXXX@uXXXXXX.your-storagebox.de:23/./repos/game
+REPO=ssh://borg@STORAGE/./repos/game
+
+# A Hetzner Storage Box offers several borg versions; name the one that matches yours (borg --version).
+#BORG_REMOTE_PATH=borg-1.4
+
+# What exists nowhere else: the characters, the game's own small databases, its settings and key, your two
+# settings files, and the folder the hooks write the database dump into.
+PATHS=(
+  /home/nwn/game/home/servervault
+  /home/nwn/game/home/database
+  /home/nwn/game/home/settings.tml
+  /home/nwn/game/home/cryptographic_secret
+  /home/nwn/game/.env
+  /home/nwn/game/db.env
+  /var/backups/nwn-borg
+)
+
+# Patterns to leave out, in borg's pattern style. Nothing by default.
+EXCLUDE=()
