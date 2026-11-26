@@ -426,7 +426,7 @@ From the test, where it had a test name:
 ```text
 created pb15t3-burst3 (cx23, hel1, image ubuntu-26.04), expires 20:23 UTC, at most EUR 0.01
 self-destruct at 2026-11-26 20:23 UTC
-157.180.117.63
+203.0.113.10
 ```
 
 It waits for SSH, puts the provider token in memory on the server (never in user data, which the provider keeps),
@@ -437,7 +437,7 @@ deadline to `/etc/burst-expires` for the agents, warns everyone logged in `WARN_
 
 ```sh
 burst.sh secrets build-1 ~/.config/agent-secrets/burst.env      # the agent's tokens, into its memory
-burst.sh status build-1                                         # build-1 157.180.117.63 14 min left
+burst.sh status build-1                                         # build-1 203.0.113.10 14 min left
 burst.sh collect build-1                                        # /srv/burst-out to OUT_DIR on the hub
 burst.sh stop build-1                                           # collect, then delete
 ```
