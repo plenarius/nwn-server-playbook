@@ -1,8 +1,8 @@
 # Chapter 5. The database
 
-**Status:** tiers 1 and 2 are written and tested. Tier 1 gives the game a database; tier 2, further down, changes
-its tables safely as your module grows. Tier 3 (queue tables, a read-only account for looking things up) is not
-written yet.
+**Status:** all three tiers are written and tested. Tier 1 gives the game a database; tier 2, further down, changes
+its tables safely as your module grows; tier 3, at the end, lets websites, bots and reports work with the game
+through the database: a work queue, revision counters and a read-only account.
 
 ## What you learn
 
@@ -564,3 +564,434 @@ database administrator's password nowhere in Coolify:
 
 Not tested: a database larger than a few tables (the rehearsal's time and room grow with it), migrations with
 stored procedures or triggers, and a release with players online.
+
+## Tier 3. The game and everything around it, through the database
+
+### What you learn
+
+By tier 3 your game has neighbours: a website where players look things up, a bot, reports for the staff, perhaps
+an operations API. They all want two things from the game. They want to **ask it to do something** ("give this
+character the item they bought on the website", "tell everyone the bank closes in five minutes"), and they want to
+**read what it knows** without slowing it down or being able to break it.
+
+The game is not easy to call. A script can't listen for requests, and NWNX's web client only reaches out over
+HTTPS, so it can't call a service on your private network. What both sides can reach is the database. This section
+uses it for three small patterns that have carried a lot of weight for us:
+
+- a **work queue**: a table where outside services add jobs, and the game picks each one up, does it, and writes
+  the outcome back, with a claim that makes sure two games, or one game restarting, never do a job twice;
+- **revision counters**: one number per kind of data, which whoever changes that data adds one to, so anyone
+  holding a copy knows when to reload without reading everything again;
+- a **read-only account** for websites, bots and reports, with exactly the rights it needs, reachable only from
+  your private network, and kept in step with your tables by a timer.
+
+When you're done, you'll have:
+
+- two new migrations, `work_queue` and `revisions`, released with tier 2's `release.sh`;
+- three small scripts in your module: the poller, its functions, and one example job;
+- the database published on the game host's private address, and nowhere else;
+- a read-only account for the control host, refused on every write, on every other database, and from anywhere
+  but its own address;
+- an account for a website that may add jobs to the queue and do nothing else;
+- a timer that gives the readers every new table within ten minutes, minus the columns you keep private.
+
+**Time:** about forty minutes, most of it reading. On the test, the release that made both tables and brought the
+poller took 32 seconds, rehearsal included, and a job added from outside ran in the game 4 seconds later.
+
+### What Layonara does
+
+- **Queues as tables.** Bug reports typed in the game go into a queue table, and our operations API files each one
+  and writes the issue number back. Furniture moved on the website goes into another, and the game does the moving,
+  because only the game may change what a container holds. Each queue has a `status` column, and the game claims
+  a job with one `UPDATE ... WHERE status = 'queued'` and checks that exactly one row changed.
+- **Each queue is its own table,** with columns made for its job. The template here is one general table; when one
+  kind of job grows columns of its own, give it a table of its own too.
+- **Revision counters, polled every 30 seconds.** Housing has a `rev` that the website adds one to whenever it
+  changes a house, and the game reloads what changed. Some of these are bumped by database triggers, so no writer
+  can forget.
+- **A read-only account for looking into problems.** Our issue watcher, which looks into bug reports with an AI
+  agent, reads the game's database through an account that may only `SELECT`, may only log in from one machine on
+  our private network, and never sees columns named like a password, an email or an address. A timer every ten
+  minutes keeps its rights in step with new tables. The script here is written the same way.
+- **The database is published on the private address only,** for the operations API and the bot on the control
+  host, a millisecond away.
+
+### The human playbook
+
+You need tier 2 of this chapter (migrations and `release.sh`), chapter 1's private network, and your module
+repository from chapter 6. Commands use `GAME` for the game host's public address, `10.77.0.2` for its private
+address and `10.77.0.1` for the control host's, as in chapter 1.
+
+The files: [`templates/module/database/`](../templates/module/database) for the module (two migrations and three
+scripts), [`templates/game/compose.db-private.yaml`](../templates/game/compose.db-private.yaml) and
+[`templates/game/db-accounts.sh`](../templates/game/db-accounts.sh) with its timer for the game host.
+
+#### 20. GENERIC. Why a table, and not a call
+
+It helps to see why this works before doing it. Each side does what it's good at:
+
+- **The outside service writes a row** and goes on with its day. It doesn't wait for the game, and it doesn't need
+  the game to be up. If the game is restarting, the row simply waits.
+- **The game looks every few seconds**, claims a row, does the work inside the world, where only it can, and writes
+  down how it went.
+- **The row is the record.** Anyone can see what was asked, by whom, when it ran and what came of it. When a player
+  says "I bought it on the website and never got it", the answer is one `SELECT` away.
+
+The hard part of any queue is making sure a job runs once, not twice and not never. Step 25 shows how the claim
+does that, and what I did to try to break it.
+
+#### 21. GENERIC. Add the two tables as migrations
+
+Both tables come as ordinary tier 2 migrations. Copy them into your module's `migrations` folder under the next
+two free numbers; if your last one is `0002`, that's:
+
+```sh
+cp templates/module/database/work-queue.sql ~/mymodule/migrations/0003-work-queue.sql
+cp templates/module/database/revisions.sql ~/mymodule/migrations/0004-revisions.sql
+```
+
+`work_queue` has one row per job:
+
+| Column | What it holds |
+|---|---|
+| `kind`, `args` | what to do: a job of kind `announce` runs the script `wq_announce` with `args` |
+| `added_by` | who asked, for you to read later |
+| `status` | `queued`, then `claimed` while a game does it, then `done` or `failed` |
+| `claimed_by`, `claim`, `claimed_at`, `attempts` | who is doing it, since when, and how many tries so far |
+| `result`, `done_at` | how it went, in words, and when |
+
+`revisions` has one row per kind of data that something else keeps a copy of, starting with `server`, which the
+game bumps each time it starts.
+
+They'll go out with the module in step 22's release.
+
+#### 22. ADAPT. Add the poller to your module
+
+Change: your `OnModuleLoad` script, by one line.
+
+The NWScript side is three small files. Copy them next to your other scripts:
+
+```sh
+cp templates/module/database/*.nss ~/mymodule/src/nss/
+```
+
+| File | What it does |
+|---|---|
+| `inc_queue.nss` | the functions: claim a job, finish it, put stale claims back, bump a revision |
+| `db_poll.nss` | runs every 10 seconds: any revision that changed, then waiting jobs |
+| `wq_announce.nss` | an example job: tells everyone online what `args` says |
+
+They need only NWNX's SQL plugin, whose `nwnx_sql.nss` is already in your module from chapter 6. Start the poller
+from your `OnModuleLoad` script, chapter 6's `mod_load.nss`, by adding this line at the end of `main`:
+
+```c
+    ExecuteScript("db_poll");
+```
+
+Then release the module and the migrations together, as in tier 2's step 15: the migrations folder and the new
+`.mod` in `~/incoming`, and `sudo ./release.sh`. The migrations run while the game is stopped, so the new module
+finds its tables waiting. The game's log then says:
+
+```
+mod_load: recorded this start in the database
+db_poll: started as demo 468329b9-fa42-44f6-9a73-b3238532e944
+```
+
+`demo` is the module's name, and the long number a fresh id for this start of the game, so you can tell starts
+apart in `claimed_by`.
+
+#### 23. GENERIC. Send the game a job
+
+As the game's own account, on the game host:
+
+```sh
+ssh nwn@GAME
+cd game
+docker compose exec mariadb sh -c 'mariadb -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" "$MARIADB_DATABASE"'
+```
+
+```sql
+INSERT INTO work_queue (kind, args, added_by) VALUES ('announce', 'The bank closes in five minutes', 'me');
+```
+
+Wait ten seconds, then:
+
+```sql
+SELECT id, kind, status, attempts, result FROM work_queue;
+```
+
+```
+id  kind      status  attempts  result
+1   announce  done    1         told 0 online
+```
+
+Everyone online saw the message, and the game's log has `wq_announce: job 1: The bank closes in five minutes`.
+Try a kind the game doesn't know, `('nosuch', '', 'me')`: it comes back `failed`, with the result
+`this game has no script wq_nosuch`. Nothing is lost silently.
+
+(In Coolify, `docker compose exec mariadb` becomes `docker exec -it mariadb-<the service's id>`.)
+
+#### 24. ADAPT. Write your own kind of job
+
+Change: everything in the script; keep its first two and last lines.
+
+A kind is a script named `wq_<kind>`, at most 13 letters after the `wq_`. Copy `wq_announce.nss` and change the
+middle. It gets the job through three script parameters and must finish the job itself:
+
+```c
+#include "inc_queue"
+
+void main()
+{
+    int nId = StringToInt(GetScriptParam("id"));
+    string sClaim = GetScriptParam("claim");
+    string sArgs = GetScriptParam("args");
+    // ... do the work ...
+    Queue_Finish(nId, sClaim, TRUE, "what happened, in words");
+}
+```
+
+Three rules keep it honest:
+
+- **Finish within the lease, two minutes.** A job may finish later than its script, for example after a
+  `DelayCommand`. But a claim older than two minutes is taken for a game that stopped, and the job goes back in the
+  queue.
+- **Read the parameters into variables first,** as above. A `GetScriptParam` written inside a `DelayCommand` is read
+  when the delay ends, and by then it's empty. I made exactly this mistake while testing, and the next step shows
+  what happened.
+- **Make the work safe to repeat.** A job runs again if the game stopped before finishing it. When the work is in
+  the database, do it and `Queue_Finish` in one transaction (`NWNX_SQL_ExecuteQuery("START TRANSACTION")`, the work,
+  the finish, `COMMIT`), so the two happen together or not at all. When it's in the world, giving an item for
+  example, check first whether it was already done, perhaps by giving the item a tag with the job's number.
+
+Write `args` as JSON when a job needs more than one thing; NWScript reads it with `JsonParse`.
+
+#### 25. GENERIC. How the claim keeps a job to once
+
+The claim is one statement:
+
+```sql
+UPDATE work_queue SET status = 'claimed', claim = ?, claimed_by = ?, claimed_at = NOW(), attempts = attempts + 1
+ WHERE status = 'queued' ORDER BY id LIMIT 1
+```
+
+The database changes one row at a time under a lock, so when two games run this at the same moment, one gets the
+row and the other finds it no longer `queued` and takes the next. Each claim carries a fresh random id, and
+`Queue_Finish` writes the outcome only `WHERE claim = ?`, so a game that lost its claim can't overwrite someone
+else's result.
+
+Each poll also puts claims older than the lease back in the queue, up to three tries; after the third the job ends
+`failed` with `gave up: no game finished it in 3 tries`. That covers a game that stopped in the middle of a job.
+
+I tried to break it, so you don't have to:
+
+- **Two game servers on one database,** 200 jobs added at once: each ran exactly once, 100 on each server, none
+  retried.
+- **Four programs claiming as fast as they could,** 1,000 jobs: every one claimed exactly once.
+- **A game killed in the middle of two jobs:** they stayed `claimed` for two minutes, went back in the queue, and
+  the other server finished each once.
+- **A job script that finished too late,** with the empty `GetScriptParam` from step 24: its finish was refused with
+  `claim lost, outcome not written`, it went back twice more, and then ended `failed` after three tries. A mistake,
+  but a visible one.
+
+There is one honest limit. If a game finishes the work and stops in the instant before `Queue_Finish`, the job runs
+a second time. That is why step 24 asks for work that is safe to repeat.
+
+#### 26. ADAPT. Revision counters
+
+Change: the names in `revisions`, and an `rv_<name>` script for each one the game should react to.
+
+A website showing the server's settings, a bot listing who owns which house: each keeps a copy and wants to know
+when it's out of date. Reading everything every minute works until it doesn't. A revision counter is a cheaper
+question: "has the number changed since I last looked?"
+
+- **Whoever changes the data adds one to its row**, in the same transaction as the change:
+  `UPDATE revisions SET rev = rev + 1 WHERE name = 'settings'`. In the game, `Rev_Bump("settings")` does it.
+- **Whoever keeps a copy reads one number** and reloads when it differs from the last one it saw:
+  `SELECT rev FROM revisions WHERE name = 'settings'`. That costs almost nothing, so it can be asked often.
+- **The game watches them too.** Every 10 seconds `db_poll` reads all of them, and for each that changed it runs
+  `rv_<name>` if your module has one: write `rv_settings.nss` to reload settings when the website changes them.
+
+Add a row for each new name in a migration: `INSERT IGNORE INTO revisions (name) VALUES ('settings');`.
+
+On the test, a reader on the control host asking every two seconds saw `server` go up three seconds after the game
+restarted, and both game servers ran their `rv_settings` within ten seconds of an outside change.
+
+A reader that can't reach the database should keep its copy and ask again. A Coolify **Restart** of the game
+restarts the database too, and my first test reader took the refused connection for a change.
+
+#### 27. GENERIC. Open the database to the private network
+
+Until now only the game could reach the database. The services on your control host need it too, and chapter 1's
+step 14 is the way: publish it on the game host's private address, and nowhere else.
+
+With plain Compose (tier 1), copy the new file:
+
+```sh
+scp templates/game/compose.db-private.yaml nwn@GAME:game/
+```
+
+and in `~/game/.env` add `:compose.db-private.yaml` to the end of the `COMPOSE_FILE` line, and a new line
+`DB_PRIVATE_ADDRESS=10.77.0.2`. Then `docker compose up -d`. That remakes the database's container, and the game
+restarts with it, so players are away for a few seconds: a quiet hour is kind.
+
+In Coolify (chapter 4, tier 2), add these lines to the `mariadb` service in the service's compose file, under its
+`volumes`, and redeploy:
+
+```yaml
+    ports:
+      - "10.77.0.2:3306:3306"
+```
+
+Either way, check from the control host, and then from your own computer:
+
+```sh
+ssh nwn@CONTROL 'timeout 4 bash -c "</dev/tcp/10.77.0.2/3306" && echo open'
+timeout 4 bash -c "</dev/tcp/GAME/3306" && echo open || echo closed
+```
+
+`open`, then `closed`. One thing changes with this: the game's own account, which can change anything in the
+game's database, now answers your private network too, to anyone with its password. Keep that password for the
+game alone, and give every other service a smaller account of its own, as the next steps do.
+
+#### 28. GENERIC. A read-only account
+
+[`templates/game/db-accounts.sh`](../templates/game/db-accounts.sh) makes accounts for outside services. Copy it to
+the game host with its timer:
+
+```sh
+scp templates/game/db-accounts.sh templates/game/db-accounts-sync.service templates/game/db-accounts-sync.timer nwn@GAME:game/
+```
+
+Make a password and keep it in a file only you can read. Later it goes into the service's own settings, in Coolify
+for a website or a bot:
+
+```sh
+umask 077; openssl rand -hex 16 > website.password
+ssh nwn@GAME 'cd game && ./db-accounts.sh reader website 10.77.0.1' < website.password
+```
+
+`made website, which may log in from 10.77.0.1 only`. The password travels on the input, so it is never on a
+command line, in your shell's history or in the server's list of processes. The script uses the database
+administrator's password from `db.env` on the game host, so nothing new leaves that machine.
+
+What `website` may do:
+
+- **Read every table of the game's database.** Nothing else: no other database, not the database's own list of
+  accounts.
+- **Never write.** `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`, `TRUNCATE`, `GRANT` and
+  `CREATE USER` were all refused on the test, every one.
+- **Log in from `10.77.0.1` only.** The same account and password from the game host itself were refused, and so
+  were they from a public address when I opened the port to the world for a minute to check. Two locks, then: the
+  port isn't on the public address, and the account wouldn't let a public address in even if it were.
+- **Five connections at most, ten seconds per query.** A sixth connection is refused, and a query running longer
+  is stopped, so a slow report can't hold up the game. `MAX_CONNECTIONS` and `MAX_SECONDS` change them.
+
+`./db-accounts.sh show website` lists its rights. Make one account per service, each with its own password, so you
+can take one away without touching the others: `./db-accounts.sh drop website`.
+
+#### 29. ADAPT. Keep its rights in step, and keep private columns private
+
+Change: `DENY_COLUMNS`, for your own private columns.
+
+Readers get their rights through a role called `game_reader`, and `./db-accounts.sh sync` brings that role in step
+with the tables: every table, and on a table with a private column, every other column. A column is private when
+its name ends in `ip`, `ip_address`, `cdkey`, `public_cdkey`, `password`, `passwd`, `token`, `secret`, `email` or
+`api_key`. If your tables have private columns named otherwise, add their names to the `DENY_COLUMNS` line at the top
+of the script.
+
+Switch on the timer, so a table added by a release can be read within ten minutes without anyone remembering. Its
+first run is straight away:
+
+```sh
+ssh nwn@GAME 'cd game && sudo cp db-accounts-sync.service db-accounts-sync.timer /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now db-accounts-sync.timer'
+```
+
+`./db-accounts.sh sync --dry-run` shows what it would change, and after a release you can run `./db-accounts.sh sync`
+yourself instead of waiting. On the test, a release added a table with `email`, `last_ip` and `public_cdkey`
+columns. The timer's next run granted the other three columns and nothing more. When a column named `host_ip` later
+appeared in a table the readers could read whole, `sync` took the whole-table right back and granted the other
+columns instead.
+
+#### 30. ADAPT. An account that may only add jobs
+
+Change: which columns it may write, if your queue has more.
+
+A website that sends jobs to the game needs to write to the queue, and to nothing else:
+
+```sh
+umask 077; openssl rand -hex 16 > webqueue.password
+ssh nwn@GAME 'cd game && ./db-accounts.sh queue webqueue 10.77.0.1' < webqueue.password
+```
+
+`webqueue` may add rows to `work_queue`, setting only `kind`, `args` and `added_by`, and read that table to see how
+its jobs went. It can't set a job's `status`, change or delete a row, or read any other table; all of that was
+refused on the test. The website can ask; only the game decides what happened.
+
+#### 31. GENERIC. With Coolify
+
+Everything above works the same when the game runs in Coolify. The scripts find the database by its Compose service
+name, the administrator's password stays in `~/game/db.env` and never goes into Coolify, and the accounts live in the
+database's own folder, so a redeploy keeps them. On the test, the switch from plain Compose to Coolify kept every
+account and right as it was.
+
+#### 32. LAYONARA-ONLY. A table per queue, and a second database
+
+Our queues each have a table of their own, with columns made for the job: a furniture move knows the house and both
+containers. One general table, as here, is the right start; give a kind of job its own table once it needs columns
+of its own. Our operations API also keeps a second database of its own beside the game's, for data no script in the
+game needs to see.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/05-database-tier3.md`](../playbooks/05-database-tier3.md) has these
+steps in a fixed shape it can follow. An agent can write job scripts, migrations and rehearsals, and read through a
+read-only account. Opening the database to the private network, and making or removing an account, are your yes.
+
+### Lessons
+
+- **Tables travel where calls can't.** A script can't listen for requests, NWNX's web client reaches out only over
+  HTTPS, and a website shouldn't wait on the game. A row both can reach gets around all three, and leaves a record.
+- **One statement claims.** A claim that reads first and writes second lets two pollers take the same row. One
+  `UPDATE ... WHERE status = 'queued' LIMIT 1`, and checking that it changed one row, leaves the database to decide.
+- **Every claim has a deadline.** A game stops sometimes, mid-job. Without a lease the job would wait forever; with
+  it, the job goes back, and after three tries it says so instead of trying forever.
+- **`DelayCommand` reads its arguments late (2026-11-26).** My first slow test job passed `GetScriptParam("claim")`
+  straight into a `DelayCommand`. It was read twenty seconds later, empty, and the claim check refused the finish.
+  The check turned a silent mistake into a logged one.
+- **A reader that can't read hasn't seen a change.** Treat an error as "ask again", never as "reload".
+- **Bind accounts to an address.** A password can leak, a port can be opened by mistake. An account that only
+  answers from one private address needs both to go wrong at once.
+
+### Tested
+
+On 2026-11-26, on two fresh Hetzner cloud servers of the smallest shared type in the state tier 2 of this chapter
+leaves them (game host with the game, its database, chapter 6's example module and the nightly backup; control host
+with Coolify 4.7.5; WireGuard between them), with `nwnxee/unified:ed79330`, MariaDB 11.8 and Ubuntu 26.04:
+
+- the two migrations and a module with the three scripts in one `release.sh` release, 32 seconds, rehearsal included;
+  later releases adding a table and a revision name;
+- jobs added as the game's account and as the queue account from the control host, run within ten seconds; a kind
+  without a script ending `failed`;
+- 200 jobs with two game servers polling one database, each run once; 1,000 claims raced by four programs, each
+  once; a game killed in the middle of two jobs, which the other server finished once after the lease; a finish
+  with a wrong claim refused, and the job failed after three tries;
+- a revision bumped by the game at start and seen by a reader on the control host three seconds later; revisions
+  bumped from outside, and both game servers running `rv_settings`;
+- the database reachable from the control host on the private address and closed on the public one;
+- the read-only account: reads allowed; every write, table change, account change and other database refused; a
+  sixth connection refused; a 15-second query stopped at 10; refused from the game host's private address and from
+  a public address with the port opened for the test;
+- `sync` after a release with private columns, by hand and by its timer; the whole-table right taken back when a
+  private column appeared; `show` and `drop` refusing the game's account and the administrator;
+- the queue account allowed to add a job and refused everything else;
+- all of it again with the game moved into Coolify, the `ports` lines in its compose file and no administrator
+  password in Coolify or in either container: a release with a migration (35 seconds), `sync`, the accounts, a
+  job, a Coolify **Restart** with the revision seen from the control host, and a reboot of the game host, after
+  which the database was back on the private address only and the timer active;
+- the whole agent playbook and its roll back, run as written on the game host restored to how it was before tier 3,
+  with the module built by hand instead of by nasher. That run found three faults in the playbook and the script,
+  all fixed and the steps run again.
+
+Not tested: a queue with thousands of jobs waiting (the poller does ten every ten seconds; change `JOBS_PER_POLL`),
+jobs with players online, and readers on a busy database.
