@@ -36,9 +36,9 @@ jobs:
     # Upstream's builder image, pinned by digest so an upstream change can't change your build unseen.
     container: nwnxee/builder@sha256:94d9280fdc36f58c350d48e24a54e754c5b4ec7ea88b6aff1ab01ee2dfa4906f
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: git config --system --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .ccache
           key: ccache-${{ github.sha }}
@@ -57,7 +57,7 @@ jobs:
         run: |
           (cd Binaries && tar cf ../NWNX-EE.tar .)
           find . -name 'nwnx_*.nss' -not -path './build/*' | grep -Pv '_t+[0-9]?\.nss$' | xargs zip -qj NWScript.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.event_name != 'pull_request'
         with:
           name: nwnx
@@ -71,8 +71,8 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: nwnx
       - name: Names
@@ -83,7 +83,7 @@ jobs:
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "moving=build$build" >> "$GITHUB_OUTPUT"
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

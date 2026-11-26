@@ -6,8 +6,9 @@
 #   tools/previews.sh publish PR OUT         put OUT's pictures on the branch "previews" and the comment on the PR
 #   tools/previews.sh forget PR              take a closed pull request's pictures off the branch
 #
-# Needs nwn-bake on PATH, your own installed copy of the game (NWN_ROOT, or NWN_GAME_DIR on your runners), and
-# for "publish" and "forget", gh and a git remote it may push to. Haks: the user folder in NWN_BAKE_USER, if set.
+# "draw" needs nwn-bake on PATH and your own installed copy of the game (NWN_ROOT, or NWN_GAME_DIR on your
+# runners; haks: the user folder in NWN_BAKE_USER, if set); "publish" and "forget" need gh and a git remote
+# they may push to.
 #
 # The pictures go on a branch of their own that holds nothing else, so they never touch your history, and are
 # linked from one comment that each push to the pull request edits rather than adds to.
@@ -18,7 +19,6 @@ MARK='<!-- previews -->'
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 GAME=${NWN_GAME_DIR:-${NWN_ROOT:-}}
-[ -n "$GAME" ] || { echo "no game: set NWN_ROOT to your installed copy of NWN:EE" >&2; exit 1; }
 
 # Draws one area of a checkout. The module is the nasher project itself: nwn-bake reads src/ as it is.
 draw_area() {
@@ -31,6 +31,8 @@ draw_area() {
 
 draw() {
   local base=$1 head=$2 out=$3 areas n=0 before
+  # Only drawing needs the game: "forget" runs on GitHub's machines, which have none.
+  [ -n "$GAME" ] || { echo "no game: set NWN_ROOT to your installed copy of NWN:EE" >&2; exit 1; }
   rm -rf "$out"; mkdir -p "$out/before" "$out/after"
   base=$(git merge-base "$base" "$head")
   # An area is three files (.are, .git, .gic); any of them changing changes how it looks, or what is in it.
