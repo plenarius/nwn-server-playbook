@@ -1,0 +1,43 @@
+# Settings for nwn-watchdog. Copy to /etc/nwn-watchdog/watchdog.conf and change the names and addresses.
+# Every section after [watchdog] is one check; its name in [brackets] is what the alerts call it.
+
+[watchdog]
+# What the messages start with.
+name = My World watchdog
+# How many runs in a row a check must fail before the alert goes out. The timer runs every 2 minutes,
+# so 2 means about 4 minutes: long enough to ignore a hiccup, short enough to beat your players to it.
+after = 2
+# Where alerts go. The file holds the webhook address and nothing else; it is a secret: readable only by root and
+# the nwn-watchdog group (mode 640), as chapter 13's step 3 makes it.
+webhook_file = /etc/nwn-watchdog/webhook
+# discord (the default), slack (Slack and anything else that takes {"text": ...}), or plain (the message as
+# the request's body: ntfy and many others).
+style = discord
+# Discord only: a role id to mention in alerts, such as your admins. Empty: no one is mentioned.
+mention_role =
+# Warn when a certificate has fewer days left than this. Let's Encrypt renews at 30, so 14 means renewal failed.
+cert_days = 14
+# Warn when a disk on the game host is this full, in percent.
+disk_percent = 90
+# Warn when the newest backup is older than this many hours. The backup runs nightly with up to ten minutes of
+# spread, so 26 allows for a late one and still tells you the same morning when one is missed.
+backup_hours = 26
+
+[game]
+# The game server, asked over UDP the way a player's game asks. Its public name or address.
+check = game
+host = game.example.org
+port = 5121
+
+[website]
+# A page over HTTPS: it answers 200, and its certificate is checked too (as "website certificate").
+check = https
+url = https://www.example.org/
+# Optional: a few words that are on the page, so an error page that answers 200 still counts as down.
+expect =
+
+[game host]
+# Disk space and last night's backup, reported by watchdog-report.sh on the game host over SSH.
+# The SSH key only runs that script there (chapter 13, step 5). Over the private network from chapter 1.
+check = report
+ssh = nwn@10.77.0.2

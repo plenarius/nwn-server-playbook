@@ -1,0 +1,21 @@
+# The Discord bot (chapter 10). For Coolify: a Docker Compose resource from your bot's repository, on the control
+# host, with the settings in its Environment variables. For plain Docker Compose: the settings in .env beside this
+# file (copied from .env.example, chmod 600), then `docker compose up -d --build`.
+services:
+  bot:
+    build: .
+    env_file:
+      - path: .env
+        required: false   # Coolify passes the settings itself
+    environment:
+      DATA_DIR: /data
+    volumes:
+      # Only the id of the dashboard message lives here, so a new container edits the same message.
+      - bot-data:/data
+    ports:
+      # The webhook receiver, on the control host itself only. Coolify's proxy (or your own) puts it on a
+      # name with HTTPS for GitHub; GitHub never talks to this port directly.
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+volumes:
+  bot-data:

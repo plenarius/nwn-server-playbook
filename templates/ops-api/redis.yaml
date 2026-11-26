@@ -1,0 +1,24 @@
+# Redis for the in-game restart countdown (chapter 9, step 9), as its own Docker Compose service in Coolify on the
+# game host. The game's NWNX_Redis plugin and the operations API both connect to it at the game host's private
+# address; nothing else can reach it.
+#
+# No password, on purpose: NWNX_Redis has no setting for one, and its pub/sub connection can't log in to a Redis
+# that asks (on the test it said "Connected!" and was subscribed to nothing). So the private address is the lock:
+# keep it off every public address, and remember that anything on your private network can publish to it.
+#
+# It keeps nothing on disk: the countdown's messages live for seconds, and a fresh Redis after a restart is fine.
+services:
+  redis:
+    image: redis:8.2-alpine
+    # protected-mode only allows a passwordless Redis to answer from 127.0.0.1; the port mapping below is what keeps
+    # it private instead.
+    command: ["redis-server", "--protected-mode", "no", "--save", "", "--appendonly", "no"]
+    ports:
+      # Only on the game host's private address.
+      - "10.77.0.2:6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
