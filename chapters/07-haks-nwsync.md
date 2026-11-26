@@ -742,3 +742,290 @@ content repository on GitHub.
 
 Not tested: a release that fails halfway inside `promote.sh`, a new version of the tools, and the image being
 removed by Coolify's own clean-up (removed by hand instead).
+
+## Tier 3. Compiled models, and NWSync builders can read
+
+### What you learn
+
+How to have the build compile your models, and how to let your builders' tools take your content straight from
+NWSync instead of from hak files you hand around.
+
+The game reads models in two forms: **ASCII**, the text a modelling tool exports, and **binary**, what the game
+itself ships. Both work, but a binary model loads faster and is smaller to download, and compiling one first is
+also the moment to find out it's broken. Doing that by hand for every model, every time, doesn't last once many
+people add content. So here the build does it, with [cleanmodels](https://github.com/plenarius/cleanmodels), a
+free model checker and compiler I maintain.
+
+When you're done, you'll have:
+
+- a builder image with cleanmodels in it, pinned and checked like the other tools;
+- every ASCII model in your haks checked and compiled to binary in the build, and a broken model refused before
+  anything is packed, with the file and the line in the message;
+- a **model cache**: a compiled model is kept, so the next build compiles only the models that changed;
+- an **origins file** beside every version you publish, listing which hak each file came from, and a small
+  script that reads it back over HTTPS the way a builders' tool does;
+- if your builders need haks the module doesn't list, a second version for them, at `/builders` on the same
+  address, sharing its files with the players' one.
+
+Your git repository keeps the ASCII models. Only what goes into the haks is compiled.
+
+### What Layonara does
+
+- **Every ASCII model is compiled in the build,** with cleanmodels, in the builder image. Our last build had over
+  a hundred thousand models, every one of them from the cache.
+- **A broken model stops the build.** Nothing is packed and nothing is staged until it's fixed.
+- **The build first proves it can see the game's own models,** with a tiny model whose supermodel only the game
+  has. Without that, models that lean on the game's would compile quietly wrong.
+- **Every version is written with its origins file.** Our builders use a build of Moonglow, a community toolset,
+  with NWSync reading added, which makes real hak files on their computer from what players download.
+
+### The human playbook
+
+You need this chapter's tier 2: content built on the control host in the builder image, staged and promoted. The
+examples use `CONTROL` for the control host's public address, as before.
+
+The changed files are in [`templates/haks`](../templates/haks) and [`templates/content`](../templates/content):
+
+- [`build.sh`](../templates/haks/build.sh), with `MODELS=compile`, and three example models in
+  [`examples/my_models`](../templates/haks/examples/my_models) to try it on;
+- [`builder/Dockerfile`](../templates/content/builder/Dockerfile), now with cleanmodels, and
+  [`builder/nwsync-origins`](../templates/content/builder/nwsync-origins), which reads an origins file;
+- [`publish.sh`](../templates/content/publish.sh), [`prune.sh`](../templates/content/prune.sh),
+  [`lib.sh`](../templates/content/lib.sh), [`content.env.example`](../templates/content/content.env.example) and
+  the [`Caddyfile`](../templates/content/Caddyfile), for the builders' version.
+
+#### 27. GENERIC. Know what changes
+
+- **Models are compiled between your checkout and the hak.** `build.sh` checks every ASCII model, compiles each
+  one into a scratch copy of its hak, and packs that copy. Your checkout is never written to. Binary models, your
+  own walkmeshes and every other file are packed as they are.
+- **The compiler needs the game's data.** Many models lean on one of the game's: a creature on its skeleton, a
+  tile on the game's materials. cleanmodels reads those from the game's own files, so the control host needs a
+  copy of them.
+- **Players download nothing new.** The origins file is a small text file beside each version. Tier 2's
+  `publish.sh` already writes it; this tier adds the script that reads it, and the builders' version.
+
+#### 28. ADAPT. The game's data on the control host
+
+Change: where your game is installed.
+
+From your own computer, copy the `data` folder of your own game install, about 4.5 GB, to the control host:
+
+```sh
+rsync -a --info=progress2 "$HOME/.local/share/Steam/steamapps/common/Neverwinter Nights/data/" nwn@CONTROL:nwn-data/data/
+ssh nwn@CONTROL ls nwn-data/data/nwn_base.key
+```
+
+On Windows or a Mac, the folder is under your Steam or GOG library instead; it's the one holding `nwn_base.key`.
+
+It has to be a game install. The game server's own data, as in the NWNX image, leaves out the models a server
+doesn't need, so models that lean on them would compile wrong. The build checks this for you in the next step.
+This folder is only read by the build, and it isn't in the download folder, so nobody downloads it.
+
+#### 29. GENERIC. The new builder image
+
+From your own computer, the new scripts and the image's files:
+
+```sh
+scp -r templates/content/* nwn@CONTROL:content/
+```
+
+`content.env` isn't in the templates, so yours stays as it is. On the control host, build the new image, and tell
+the scripts to use it and to compile:
+
+```sh
+docker build -t nwsync-builder:2.3.2-cm4.18.3 ~/content/builder
+cat >> ~/content/content.env <<'END'
+IMAGE=nwsync-builder:2.3.2-cm4.18.3
+MODELS=compile
+END
+```
+
+The image took 45 seconds to build on the test, 312 MB. Like the neverwinter.nim tools, cleanmodels is downloaded
+at one version and checked against a checksum written in the `Dockerfile`, and the image refuses to build if
+cleanmodels says it's another version. A new version of cleanmodels is the same three moves as step 25: its two
+lines in the `Dockerfile`, the tag in `content.env`, then stage as usual.
+
+#### 30. GENERIC. Switch it on in the content repository
+
+Copy the new [`build.sh`](../templates/haks/build.sh) into your content repository, over the old one, and merge
+it. To see it work before your own models go through it, copy the examples in too:
+
+```sh
+cp ~/guide/templates/haks/build.sh ~/myhaks/
+cp -r ~/guide/templates/haks/examples ~/myhaks/
+cp -r ~/myhaks/examples/my_models ~/myhaks/haks/      # a new hak, to try; take it out again after
+```
+
+(Here `~/guide` is your copy of this guide.) Commit, push, and stage as in step 21. The first lines of
+`publish.sh` now say what happened to the models:
+
+```text
+3 ASCII models
+checked 0 unchanged models by their checksum, 3 with cleanmodels
+compiled 3 models, 0 of them from the cache
+packed build/hak/my_models.hak (3 files)
+```
+
+Stage again, and the same lines say the work was saved:
+
+```text
+checked 3 unchanged models by their checksum, 0 with cleanmodels
+compiled 3 models, 3 of them from the cache
+```
+
+The cache is in `~/model-cache` on the control host. A compiled model is used again only while the model, the
+version of cleanmodels and everything the compile looked up (supermodels, skeletons, materials) are unchanged,
+so a changed supermodel compiles its children again by itself. Anything no build has used for two weeks is
+removed at the end of a build. You can delete the whole folder whenever you like; the next build is just slower.
+
+If the build says *"the game's data is not in reach"*, step 28 isn't done, or the folder isn't a game install.
+
+#### 31. GENERIC. When a model is refused
+
+A model that fails its check stops the build before anything is packed, and nothing is staged. On the test, with
+two broken models pushed:
+
+```text
+5 ASCII models
+these models fail their check; nothing was packed:
+haks/my_models/ex_bad.mdl: node "m" references missing parent "nowhere"; would be reparented to "ex_bad"
+haks/my_models/ex_broken.mdl: line 30: node "crate", verts: entry has 2 value(s), expected 3; the missing ones are set to 0
+```
+
+What players get doesn't change. Whatever was staged before isn't staged any more, as with any run of
+`publish.sh`, so `promote.sh` refuses until a build works. Fix the model in your modelling tool (or run `cleanmodels check` on it at home to see
+everything it finds), push, and stage again.
+
+The rule is strict on purpose. A model that the game would load with a node in the wrong place, or with made-up
+vertices, is a bug report from a player some weeks later. Warnings, such as a mesh with no texture, don't stop
+the build.
+
+#### 32. GENERIC. The same build at home
+
+To try models before you push, the same `build.sh` compiles at home. You need
+[cleanmodels](https://github.com/plenarius/cleanmodels/releases), `jq` and `perl` on your PATH, and the game:
+
+```sh
+MODELS=compile NWN_ROOT="$HOME/.local/share/Steam/steamapps/common/Neverwinter Nights" ./build.sh
+```
+
+At home the cache is `build/model-cache`, which git ignores. Without `MODELS=compile`, `build.sh` packs your
+models as they are, as before.
+
+#### 33. GENERIC. Read the origins file
+
+Each version you publish has a file beside its manifest, `manifests/<version>.origin`. A manifest only lists
+files by name and checksum; the origins file says which hak or talk table each one comes from, and where two haks
+hold the same file, only the one that wins in the game lists it. With it, a builders' tool can rebuild your real
+hak files from what players download, without you handing haks around.
+
+The builder image has a script that reads it the way such a tool does. It downloads the manifest and the origins
+file over HTTPS, checks that the two agree, file for file, and prints what came from where:
+
+```sh
+docker run --rm nwsync-builder:2.3.2-cm4.18.3 nwsync-origins https://nwsync.example.org
+```
+
+```text
+version 77b61e9cea39a7d4f82e759be14976ee7c32d093: 5 files from 3 haks and talk tables
+  my_first_hak.hak     1 files
+  my_models.hak        3 files
+  my_tlk.tlk           1 files
+```
+
+Give it a version and file names, and it says which hak each comes from; that's the question a builder asks when
+a texture looks wrong:
+
+```sh
+docker run --rm nwsync-builder:2.3.2-cm4.18.3 nwsync-origins https://nwsync.example.org latest ex_crate.mdl ex_notes.2da
+```
+
+[Moonglow](https://github.com/jadzziaa/moonglow-toolset), a community toolset for NWN, has NWSync reading
+offered as a change (its pull request 53, open as I write, 2026-11-26). With it, its `mg nwsync-pull` and
+`mg nwsync-haks` download a version and write the haks from it. On the test they rebuilt every hak and the talk
+table from the download, byte for byte the same as the build's.
+
+#### 34. ADAPT. A version for builders, if you need one
+
+Change: only if your builders need haks the module doesn't list.
+
+Players only download the haks the module lists. Sometimes builders need more: a hak of new content that's not in
+the module yet, or a kit of pieces only builders place. With `BUILDERS=yes`, `publish.sh` also writes a second
+version with every hak the build made, at `/builders` on the same address. Its files sit beside the players' ones
+and are stored once, so a file in both costs nothing twice.
+
+On the control host:
+
+```sh
+echo BUILDERS=yes >> ~/content/content.env
+```
+
+The new `Caddyfile` from step 29 keeps the builders' `latest` from being cached. Caddy reads it only when it
+starts, so restart the downloads service once in Coolify. Then stage as usual; one more line appears:
+
+```text
+builders get c0fb1843a53c26ec684e72601f82352626279d88 (6 files) at https://nwsync.example.org/builders
+```
+
+The builders' version moves when you stage, not when you promote: builders work on what comes next, players get
+it when you promote. It is checked over HTTPS like the players' one, and the tidy-up keeps whatever the
+builders' `latest` names. Point a builders' tool at `https://nwsync.example.org/builders`; for Moonglow, that's
+`source` under `[nwsync]` in the project's `moonglow.toml`. The game itself never sees this address.
+
+#### 35. LAYONARA-ONLY. A hundred thousand models
+
+Our build compiles over a hundred thousand models. The steps are the same; our cache is just much bigger, and an
+ordinary build takes every model from it.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/07-haks-nwsync-tier3.md`](../playbooks/07-haks-nwsync-tier3.md) has
+these steps in a fixed shape it can follow. It asks before it copies the game's data, before it switches on the
+builders' version, and whenever a model is refused (the fix is a modeller's, not the agent's).
+
+### Lessons
+
+- **The server's game data isn't enough to compile models.** The dedicated server leaves out models it doesn't
+  need. With only that, cleanmodels compiled my test model with a single warning about a missing supermodel, and
+  the result would have loaded wrong. That's why `build.sh` compiles a tiny model against the game's own
+  `a_ba` first and stops if there's any warning.
+- **Not every problem fails the checker.** A model with a short list of vertices is read with the missing values
+  set to 0, and cleanmodels says so as a warning, not an error. On my first try a model like that went through.
+  `build.sh` now reads cleanmodels' report and refuses those too.
+- **Remember a check with its rules.** `build.sh` remembers which models passed, by checksum, to save time. When
+  I made the rules stricter, the broken model from the last lesson was still remembered as good. The memory is now
+  kept per version of cleanmodels and of `build.sh`, so a change to either checks everything again once.
+- **Never write through a hard link.** The scratch copy of a hak is made of hard links to your checkout, which is
+  quick and takes no space. Writing a compiled model into one of those links would change the file in your
+  checkout too, so each link is removed first and the compiled file put in its place.
+- **Use your own walkmeshes.** cleanmodels also writes a walkmesh for a tile it compiles. The build packs the one
+  in your repository instead, the one your tile was made and tested with.
+
+### Tested
+
+On 2026-11-26, with Coolify 4.7.5, neverwinter.nim 2.3.2 and cleanmodels 4.18.3 in the image on `ubuntu:24.04`,
+Docker 29.10 on Ubuntu 26.04, Caddy 2.11, on a pair of fresh Hetzner cloud servers of the smallest shared type,
+brought to the state tier 2 leaves them in: the downloads service on the control host under a temporary name in
+our own domain, with a real certificate, and the game advertising from it. A plain git repository on the control
+host stood in for the content repository, and the game's data was copied from a Steam install of NWN:EE.
+
+- the image: built in 45 seconds, 312 MB; cleanmodels' version checked;
+- the canary: with the game's data, the build went on; with the game server's data from the NWNX image, it
+  stopped with the missing supermodel;
+- a stage with the three example models in two haks: all three checked and compiled, the packed models binary,
+  the checkout unchanged; the next stage took all three from the cache;
+- two broken models pushed (a node whose parent doesn't exist, and a short list of vertices): the build stopped
+  with both named, nothing packed, nothing staged, players' `latest` unchanged; fixed and staged again; and a
+  file that isn't a model at all, in a copy of the repository, refused the same way;
+- the origins files from outside over HTTPS with `nwsync-origins`, for the players' and the builders' versions:
+  every file found once, files mapped to the right haks, a missing file reported with an error;
+- the builders' version: written with the one hak the module doesn't list, checked over HTTPS, its `latest` not
+  cached; the tidy-up, with `KEEP=1`, removing two old versions and keeping the builders' one although it wasn't
+  the newest, and it still downloading completely;
+- Moonglow's command-line tool `mg`, a build with the NWSync change from its pull request 53: `nwsync-pull` and
+  `nwsync-haks --all` from the builders' address, every hak and the talk table the same, resource for resource,
+  as the build's.
+
+Not tested: Moonglow's window itself (only its command-line tool, on a server with no screen), a content
+repository the size of ours, and the first build after a new cleanmodels version with many models.

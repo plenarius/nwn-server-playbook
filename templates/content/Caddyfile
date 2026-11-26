@@ -2,6 +2,6 @@
 	root * /srv/nwsync
 	file_server
 	# "latest" names the newest content. Nobody should keep an old copy of it.
-	@latest path /latest /staging/latest
+	@latest path /latest /staging/latest /builders/latest
 	header @latest Cache-Control "no-store"
 }
