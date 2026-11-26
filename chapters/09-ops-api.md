@@ -1,8 +1,9 @@
 # Chapter 9. The operations API
 
-**Status:** tier 2 is written and tested. Tier 1 doesn't need it: with one machine and one person, you restart by
-hand (chapter 4, step 10) and release with `release.sh` (chapter 16), and that's all a small server needs. Tier 3
-(game data for a website: characters, reports and the like) is not written yet.
+**Status:** tiers 2 and 3 are written and tested. Tier 1 doesn't need it: with one machine and one person, you
+restart by hand (chapter 4, step 10) and release with `release.sh` (chapter 16), and that's all a small server
+needs. Tier 3, at the end, gives the API the game's own files so a website can show characters, items and names
+the way the game words them.
 
 ## What you learn
 
@@ -438,8 +439,8 @@ still go live with `release.sh` (chapter 16). Then look at the API's logs in Coo
 ### 18. LAYONARA-ONLY. Everything else ours does
 
 Our API also serves the website: character sheets, the vault, houses, crafting, reports from players. Those are
-our game's own systems, and they're why ours has eight key groups and hundreds of routes. Tier 3 shows the pattern
-for a website that reads game data through the same kind of service. Please don't start there: the operations
+our game's own systems, and they're why ours has eight key groups and hundreds of routes. Tier 3 shows the part
+every website can use: game data read through the same service. Please don't start there: the operations
 above are the part that pays for itself first.
 
 ## The agent playbook
@@ -507,3 +508,270 @@ host, a nightly backup, and Coolify on the control host managing both over WireG
 Not tested: a real Discord channel; a release made with a real GitHub token; the notices that need players online,
 and anything else with a player connected; a module with its own restart handler; the dashboard forms by hand (the
 services and settings were made through Coolify's API, which does what those pages do).
+
+---
+
+## Tier 3. Game data for a website
+
+### What you learn
+
+How to let your website show the game's own words: a character's sheet, an item as the game's examine window
+describes it, the name behind a talk table number. nwn-ops-api has a small, optional part for this. It reads the
+game's files itself (the base game, your module, your haks and your talk table), and it reads characters from the
+server vault on the game host when it's asked. This part is about giving it those files, keeping them in step with
+the live game, and deciding what a public page may show of a character.
+
+When you're done, you'll have:
+
+- the API's own copy of the game's files on the control host, kept in step every ten minutes by a small timer;
+- five more read-only routes on the read key: talk table text, 2DA tables and rows, items, a player's vault folder
+  and a character sheet;
+- a staff route on the admin key that takes a character out of a vault without deleting anything;
+- a clear idea of what in a character file is private, which chapter 11's character pages build on.
+
+**Time:** half an hour. The first copy of the game's files took 5 seconds on the test, and a check with nothing new
+takes about 3.
+
+### What Layonara does
+
+- **The same service serves the website.** Our character pages, item tooltips and recipe pages all come from the
+  operations API, with the read key, the way chapter 11's status page does.
+- **It reads the game's files the way the game does.** The haks in the module's order, then the module, then the
+  base game. A page that shows an item shows the item a player would see, with the name from our talk table and the
+  numbers from our 2DAs.
+- **Its copy of the haks is the published one.** The API mounts the folder players download from, which is
+  replaced whole at a release, never the folder a build writes into (see "Lessons").
+- **Characters come from the vault.** Ours keeps an index of every character in its own database, refreshed every
+  hour from the vault over SSH, so a list of a thousand characters doesn't mean a thousand file reads. A single
+  character is read fresh, and the website keeps it five minutes.
+- **The keys follow what they open.** Pages for the public use the read key. Players changing their own characters
+  on the website go through a key of their own, and staff tools that change character files are on staff keys.
+- **Taking a character out of play is a staff button,** with a dry run first. It renames the file in the player's
+  vault folder, so nothing is lost and anything can be put back.
+
+nwn-ops-api has the reading part, without the index or the picture renderer: a character's portrait comes back as
+its name in the game's files, not as a picture.
+
+### The human playbook
+
+You need this chapter's tier 2 done, and chapter 7's tier 2: the control host has its own key to the game host
+(chapter 7, step 14), and your haks and talk table are live on the game host.
+
+#### 19. GENERIC. Know what it reads, and from where
+
+| What | Where the API reads it | Fresh how |
+|---|---|---|
+| The base game: 2DAs, items, `dialog.tlk` | its own copy on the control host, from the image the game runs | copied again when the game's image changes |
+| Your module, haks and talk table | its own copy on the control host, from the game host's live folders | every ten minutes (step 21), seen by the API within ten seconds |
+| Characters | the game host's server vault, over SSH, when asked | each time; your website keeps them a few minutes |
+
+The API reads files the way the game finds them: your haks in the order your module lists them (the first one wins),
+then the module, then the base game. Every answer that comes from a file says which one, in `from`: a hak's name,
+`module` or `base`. That's the quickest way to see which of two copies of a 2DA is the one the game uses.
+
+The copies live on the control host because the API does. It never needs to touch the game's own folders for this,
+and a copy that's ten minutes behind does no harm: a website showing yesterday's item name for a few minutes after a
+release is fine.
+
+#### 20. GENERIC. A version with the game data part
+
+The game data part came after tier 2 was written. If your API is older, move it to a newer build as in step 16:
+
+```sh
+cd ~/nwn-ops-api && git pull
+docker build -q -t nwn-ops-api:$(git rev-parse --short HEAD) .
+```
+
+Wait for `progress` to show no operations, set `OPS_API_IMAGE` to the new tag, and restart the service. Nothing new
+switches on yet: the game data part stays off until step 22, and the vault part until you ask for it there, because a
+vault folder's name is a player's CD key.
+
+#### 21. GENERIC. The API's copy of the game's files
+
+On the control host, as `nwn`, put [`templates/ops-api/gamedata-sync.sh`](../templates/ops-api/gamedata-sync.sh)
+and its two systemd files beside the API's other files, make the folder, and run it once:
+
+```sh
+cp ~/nwn-server-playbook/templates/ops-api/gamedata-sync.* ~/ops-api/
+mkdir -p ~/ops-api/gamedata
+~/ops-api/gamedata-sync.sh
+```
+
+The first time, it says `base game data copied from the image ...` and `module mymodule (1 changed), haks: 1
+changed, talk tables: 1 changed`. What it did:
+
+- **The base game** comes out of the image your game runs, `/nwn/data` inside it: the key and bif files and
+  `dialog.tlk`, about 220 MB. It's copied over the private network, into a new folder that replaces the old one in
+  a single step, and only when the game moves to a different image.
+- **Your module** is copied under one fixed name, `module.mod`, whatever version is live: the script reads
+  `NWN_MODULE` from the game's `.env`, the same line chapter 16's releases and step 12's deploys change.
+- **The haks and talk table** are the live ones in `home/hak` and `home/tlk`, never the staged ones, which aren't
+  live until a deploy. Each changed file goes into place at the end of the copy, so the API never reads half of one.
+
+It changes nothing on the game host, and you can run it whenever you like. Then let a timer run it every ten
+minutes:
+
+```sh
+sudo install -m 644 ~/ops-api/gamedata-sync.service ~/ops-api/gamedata-sync.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now gamedata-sync.timer
+systemctl list-timers gamedata-sync.timer
+```
+
+If your deploy user isn't `nwn`, change `User=` and the path in the `.service` file first. After a release, run the
+script by hand if you'd like the website to catch up at once.
+
+#### 22. ADAPT. Switch it on in the API
+
+Change: nothing, if you used this guide's folders.
+
+In Coolify, open the `ops-api` service and edit its compose file: take the `#` off the line
+
+```yaml
+      # - /home/nwn/ops-api/gamedata:/data/game:ro
+```
+
+so the folder is mounted read-only. (If your service was made before this chapter's tier 3, paste in the newer
+[`coolify.yaml`](../templates/ops-api/coolify.yaml) first.) Then add the five settings at the end of
+[`ops-api.env.example`](../templates/ops-api/ops-api.env.example):
+
+| Setting | Value |
+|---|---|
+| `GAME_NWN_ROOT` | `/data/game/nwn` |
+| `GAME_MODULE_FILE` | `/data/game/module.mod` |
+| `GAME_HAK_DIR` | `/data/game/hak` |
+| `GAME_TLK_DIR` | `/data/game/tlk` |
+| `GAME_VAULT` | `on` |
+
+`GAME_VAULT` switches on the vault routes (a player's characters, character sheets, retiring a character). Leave it
+out if your website won't show characters: without it those routes answer 503.
+
+These are paths inside the API's container, not on the control host. You don't name your haks or your talk table:
+the API reads them from your module's own list, in its order. Restart the service. Its log now says
+`configured: ..., game_data, vault` (without `GAME_VAULT`, just `game_data`).
+
+#### 23. GENERIC. A first look
+
+On the control host, with the read key in `~/.ops-read-key` the way step 8 keeps the others:
+
+```sh
+API=http://10.77.0.1:8100/api/v1
+read_() { curl -s -H @<(printf 'Authorization: Bearer %s\n' "$(cat ~/.ops-read-key)") "$@"; echo; }
+read_ $API/game/tlk/16777216
+read_ $API/game/2da/classes/7?names=true
+read_ $API/game/items/nw_wswls001
+```
+
+The first is the first line of your own talk table (custom talk table lines start at 16777216). The second is a
+row of a 2DA, with the talk table text of its name columns; your hak's 2DAs answer here too, with `"from"` naming
+the hak. The third is an item blueprint as the examine window shows it: name, weight, value, required level and
+properties. Add `?identified=false` and it shows only what a player sees before the item is identified.
+
+A file the API doesn't find is a `404`. If `from` names a copy you didn't expect, the order of the haks in your
+module decides it, as it does in the game.
+
+#### 24. GENERIC. Characters, and what's private in them
+
+```sh
+read_ $API/game/vault/QR7KX2PL
+read_ $API/game/vault/QR7KX2PL/ariabrightwater
+```
+
+The vault folder is the player's: the game names it after their public CD key (or their player name, if your
+server is set that way). The first route lists their characters' files, and the second is one character's sheet:
+name, description, race, gender, deity, alignment, age, level and classes, experience and hit points, ability
+scores, skill ranks, feats, what they wear with each item's examine panel, and the portrait's name. It's read from
+the file the game last saved, each time you ask, in about a tenth of a second on the test.
+
+Some of what's in a character file is the player's business, and some of it is a secret of your world's. Here's
+how I'd sort it:
+
+| In the file | Who should see it |
+|---|---|
+| Name, description, race, gender, deity, classes and level | the public, once the player says so: it's what the player wrote for others, or what anyone meeting the character could tell |
+| What they wear | the public, if the player wants: it's visible in the game, but a quest reward's name can tell a story the player would rather keep |
+| Ability scores, skills, feats, alignment, experience, hit points | the player, and the team. A build is a player's own work, and in a world with fights between players it's worth something to the other side |
+| The vault folder and the file's name | the team only: the folder is the player's CD key |
+| When the game last saved it | the team only: it's when the player last played |
+| The pack and bags, gold, local variables, position | the team only. The API doesn't return them at all: they hold quest progress and where someone is right now |
+
+The read key opens the sheet, because it's how a website reads a character, and the website then shows only part
+of it. That makes your website the gate: its key can read any character in the vault, so the website must decide
+whose sheet it shows, and which parts. Chapter 11's character pages do exactly that, and only for characters whose
+players asked. Never hand the read key to anything that shows sheets as they come.
+
+#### 25. GENERIC. Caching
+
+The API keeps the game's files in memory and looks at them again at most every ten seconds, so a talk table line
+or a 2DA row costs next to nothing. A character sheet costs an SSH call to the game host every time. That's cheap
+(a tenth of a second), but a page visited a thousand times shouldn't make a thousand calls: whoever calls the API
+keeps its answers. Chapter 11 keeps a sheet five minutes and an unknown name one minute. Five minutes is also how
+long a changed character can take to show, and how long a page you've taken down can linger in a browser.
+
+#### 26. ADAPT. Taking a character out of play
+
+Change: the folder and file.
+
+Sometimes a player asks you to remove a character, or a character has to leave play. The API renames its file in
+the player's folder, so it's gone from their list in the game, and nothing is deleted:
+
+```sh
+admin -X POST -d '{}' $API/game/vault/QR7KX2PL/ariabrightwater/retire
+admin -X POST -d '{"dry_run": false}' $API/game/vault/QR7KX2PL/ariabrightwater/retire
+```
+
+The first is a dry run: it says the new name, `ariabrightwater.bic.retired-20261126T182413Z`. The second does it.
+It's refused while anyone is online, because a character who is logged in would be saved again under its old name.
+To bring the character back, rename the file on the game host to its old name. It's on the admin key: the website
+never gets it.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/09-ops-api-tier3.md`](../playbooks/09-ops-api-tier3.md) has these steps
+in a fixed shape it can follow. Restarts of the API, and retiring any character, are your yes.
+
+### Lessons
+
+- **Copy what's live, from where it's live.** I first meant to read the haks from the control host's build folder,
+  where chapter 7 builds them. But a build empties that folder first, and anything reading it then finds the base
+  game's files instead of yours. We learned that the hard way: a picture renderer of ours once read the base game's
+  table of placeables in the middle of a hak build. The script copies from the game host's live folders, and swaps
+  each file in whole.
+- **The game's image holds the game.** The base game's files the API needs are already in the image your game runs.
+  Taking them from there means the API reads the very version the game does, with no download and no install.
+- **A key that reads everything needs a gate.** The read key opens any character in the vault, because the API
+  can't know which ones your players want shown. The website decides, and chapter 11 makes it decide by a list.
+- **Leave out, don't hide.** The API never returns a character's pack, gold, local variables or position, so no
+  page can show them by mistake. The website then picks, by name, the few fields it shows.
+
+### Tested
+
+On 2026-11-26, on two fresh Hetzner cloud servers of the smallest shared type, Ubuntu 26.04, prepared with chapters
+1, 3 and 4 (tier 1 game with NWNX `ed79330` and its database as a plain Compose project, Coolify 4.7.5 on the
+control host, WireGuard between them):
+
+- nwn-ops-api at commit `fb5fea1`, its game data part
+  ([nwn-ops-api#4](https://github.com/plenarius/nwn-ops-api/pull/4)); since then the vault routes need `GAME_VAULT=on`
+  ([nwn-ops-api#5](https://github.com/plenarius/nwn-ops-api/pull/5), covered by its tests, not rerun here), built on the control host from a copy of my
+  own checkout, run as the Coolify service from `coolify.yaml` with the game data settings of step 22;
+- the example hak and talk table of chapter 7 live on the game host, and a module with both in its list;
+- `gamedata-sync.sh`: the first copy in 5 seconds (221 MB of base game data from the game's image), a run with
+  nothing new in 3 seconds, a changed hak copied and answered by the API within 11 seconds without a restart, a new
+  `NWN_MODULE` copied under the fixed name, a run with the game stopped (the base game left as it was), and a fresh
+  copy when its record of the image was gone; then from the systemd timer;
+- the agent playbook as written, from its roll back (timer, settings and copy removed) to Verify, with step 1
+  skipped because the image already had the game data part;
+- every game data route with the read key: a line of the custom talk table, a base game line, the hak's 2DA with
+  `"from": "my_first_hak"`, a base game 2DA row with names, a base game item identified and not, a vault folder, a
+  character sheet (0.07 to 0.2 seconds); an unknown folder `404`; retire refused on the read key (`403`), its dry
+  run and a real retire with the admin key, and the character gone from the folder's list after it;
+- the sheet's answer checked for what it leaves out: no pack, no gold, no local variable, no position.
+
+The characters were made for the test, not played: two character files written with neverwinter.nim's `nwn_gff`
+from real base game items (worn and in the pack), with gold, a local variable and a position added, and put in two
+vault folders as the game would (owned by root, readable by all). No player logged in to make them, so the refusal
+of a retire while someone is online wasn't tested, and the API read the game's own vault format only through those
+files.
+
+Not tested: the game as the Coolify service of chapter 4's tier 2 (the sync reads the same `.env` line and the same
+container label either way); a deploy through the API followed by the sync (the module change was made by hand in
+`.env`); a server whose vault folders are named after player names.

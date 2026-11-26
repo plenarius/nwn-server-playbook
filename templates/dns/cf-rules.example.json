@@ -1,0 +1,47 @@
+{
+  "owner": "playbook",
+  "phases": {
+    "http_request_firewall_custom": [
+      {
+        "ref": "playbook-challenge-sign-in",
+        "description": "Managed challenge on the sign-in pages, except for verified search engines",
+        "expression": "(http.host eq \"www.example.org\" and (starts_with(lower(http.request.uri.path), \"/login\") or starts_with(lower(http.request.uri.path), \"/register\")) and not cf.client.bot)",
+        "action": "managed_challenge"
+      },
+      {
+        "ref": "playbook-block-scanners",
+        "description": "Block vulnerability scanners by their user agent",
+        "expression": "(http.host in {\"www.example.org\" \"forums.example.org\"} and (http.user_agent contains \"zgrab\" or http.user_agent contains \"masscan\" or http.user_agent contains \"Nuclei\" or http.user_agent contains \"Nikto\"))",
+        "action": "block"
+      }
+    ],
+    "http_request_dynamic_redirect": [
+      {
+        "ref": "playbook-old-forum-name",
+        "description": "The old forum name to the new one, same path and query",
+        "expression": "(http.host eq \"forum.example.org\" and not starts_with(http.request.uri.path, \"/.well-known/acme-challenge/\"))",
+        "action": "redirect",
+        "action_parameters": {
+          "from_value": {
+            "status_code": 308,
+            "target_url": { "expression": "concat(\"https://forums.example.org\", http.request.uri.path)" },
+            "preserve_query_string": true
+          }
+        }
+      },
+      {
+        "ref": "playbook-apex-to-www",
+        "description": "The bare domain to www, same path and query",
+        "expression": "(http.host eq \"example.org\" and not starts_with(http.request.uri.path, \"/.well-known/acme-challenge/\"))",
+        "action": "redirect",
+        "action_parameters": {
+          "from_value": {
+            "status_code": 308,
+            "target_url": { "expression": "concat(\"https://www.example.org\", http.request.uri.path)" },
+            "preserve_query_string": true
+          }
+        }
+      }
+    ]
+  }
+}

@@ -34,19 +34,21 @@ Success: `3`, `success`, `staging`.
 
 ```sh
 grep -c 'timeout-minutes' .github/workflows/tests.yml .github/workflows/release.yml
-grep -c 'cancel-in-progress: true' .github/workflows/tests.yml
-grep -B2 'tests/run.sh --filter' .github/workflows/tests.yml | grep -c 'pipefail'
+grep -c 'cancel-in-progress' .github/workflows/tests.yml
+grep -A12 'name: Run the tests' .github/workflows/tests.yml | grep -c 'set -o pipefail'
+grep -A4 'path: tests/.run/' .github/workflows/tests.yml | grep -c 'include-hidden-files: true'
 ```
 
-Success: `tests.yml:1`, `release.yml:2`, then `1`, then `1`. A `0` for `pipefail` means a failed test can pass the
-run: stop and ask.
+Success: `tests.yml:3` (the plan, each lane, and the `tests` job at the end), `release.yml:2`, then `1`, `1` and
+`1`. A `0` for `pipefail` means a failed test can pass the run, and a `0` for `include-hidden-files` means the test
+logs are never kept (`tests/.run` is a hidden folder): stop and ask.
 
 ### 2. Nothing cached that doesn't pay
 
 ```sh
 grep -c 'actions/cache' .github/workflows/*.yml .github/actions/nwn-tools/action.yml
 grep -o 'key: nwsync-.*' .github/workflows/tests.yml | sort -u; grep '^  NWSYNC_URL:' .github/workflows/tests.yml
-RUN=$(gh run list -R $GH_REPO -w Tests -b main -L 1 --json databaseId -q '.[0].databaseId'); gh run view $RUN -R $GH_REPO --json jobs -q '.jobs[0].steps[] | "\(.name) \(.conclusion) \(.startedAt) \(.completedAt)"'
+RUN=$(gh run list -R $GH_REPO -w Tests -b main -L 1 --json databaseId -q '.[0].databaseId'); gh run view $RUN -R $GH_REPO --json jobs -q '[.jobs[] | select(.name | startswith("lane"))][0].steps[] | "\(.name) \(.conclusion) \(.startedAt) \(.completedAt)"'
 ```
 
 Success: `tests.yml:2` and `0` for every other file (the two are the content cache's restore and save); one key,

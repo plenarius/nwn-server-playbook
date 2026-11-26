@@ -1,0 +1,10 @@
+# Every ten minutes, so a table added by a release can be read within ten minutes without anyone remembering.
+[Unit]
+Description=Bring the database readers' rights in step every ten minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

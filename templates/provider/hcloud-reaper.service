@@ -1,0 +1,22 @@
+# Deletes this script's servers that are past their expiry. Started by hcloud-reaper.timer. Chapter 1, tier 3.
+[Unit]
+Description=Delete forgotten short-lived servers at the provider
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/hcloud-reaper/reaper.env
+ExecStart=/usr/local/bin/hcloud-servers reap
+TimeoutStartSec=120
+DynamicUser=yes
+# The token file is root's (mode 600); systemd hands it to the service without making it readable to anyone else.
+LoadCredential=token:/etc/hcloud-reaper/token
+Environment=HCLOUD_TOKEN_FILE=%d/token
+# Optional: hear about each server it deletes. Put a Discord webhook address in that file and remove the #s.
+#LoadCredential=webhook:/etc/hcloud-reaper/webhook
+#Environment=ALERT_WEBHOOK_FILE=%d/webhook
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

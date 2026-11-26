@@ -1,8 +1,9 @@
 # Chapter 11. A website
 
 **Status:** tier 1 is written and tested. Tier 2, further down, is written and tested in two parts: the site moves
-to the control host with deploy on merge, then gains a live status page. Pages for characters come with tier 3,
-together with one sign-in shared by a website, a forum and a wiki; those are not written yet.
+to the control host with deploy on merge, then gains a live status page. Tier 3's first part, character pages for
+the players who ask for one, is written and tested; its sign-in shared by a website, a forum and a wiki is not
+written yet.
 
 ## What you learn
 
@@ -574,3 +575,212 @@ were tested in chapter 9.
 Not tested: a player online (the count was 0 throughout), the restart countdown on the page (it needs chapter 9's
 Redis part), the dashboard forms by hand, and the page in dark mode (it uses the front page's colours, which were
 checked in dark mode in tier 1).
+
+---
+
+## Tier 3, first part. Character pages
+
+### What you learn
+
+How to give a character its own page on your website, with its name, its description, its race and classes and, if
+its player likes, what it wears, read from the game's own character file. And how to do it so that only players
+who asked for a page get one.
+
+When you're done, you'll have:
+
+- a page for each character on a short list, at `/characters/<name>`, and a page listing them;
+- the same arrangement as the status page: the visitor's browser asks your site, your site asks the operations API
+  with its read key, and passes on only the fields the page shows;
+- a list in your site's repository that decides who has a page, changed by pull request like everything else;
+- a page that says "Not found" for anyone else, without even asking the API.
+
+This part assumes chapter 9's tier 3: the API reads the game's files and the server vault. It builds on this
+chapter's status page; the files replace its `Dockerfile` and `nginx.conf`.
+
+### What Layonara does
+
+- **Players prove which characters are theirs.** A player signs in on our website, and types a one-use code it
+  shows them in the game; the game tells the website which account typed it. From then on the website knows their
+  characters.
+- **Players decide what their page shows.** Each part of a character page (what it wears, abilities, feats, skills,
+  level history, crafting, houses and more) is shown to everyone, to signed-in members or only to the player, as
+  the player sets it, and most parts start out as the player's only. A player can hide a character's page
+  altogether, and a hidden page looks exactly like one that doesn't exist.
+- **Sharing is tied to the character file, not to the page's name.** A renamed character gets a new page name, but
+  keeps the player's choices.
+- **A character is kept five minutes,** as here, and its portrait comes from our own picture renderer.
+
+That's a lot of machinery: a sign-in, a link between the website and the game, a database of choices. This part
+does the honest small version instead: a character has a page only when its player asks, and shows only what the
+player agreed to.
+
+### The human playbook
+
+You need this chapter's status page live, and chapter 9's tier 3 done: the API answers
+`/api/v1/game/vault/...` with the read key.
+
+#### 21. GENERIC. Decide who gets a page
+
+Without a sign-in, your website can't ask a player what they'd like. So a character gets a page only when its
+player has asked for one, and the list of those characters is a file in your site's private repository,
+[`characters.txt`](../templates/site/characters/characters.txt). One line per character:
+
+```
+aria-brightwater   QR7KX2PL   ariabrightwater   gear
+```
+
+The page's name (its address will be `/characters/aria-brightwater`), the player's vault folder, the character's
+file in it, and `gear` if the player also wants what the character wears shown. A character that isn't in the
+list gets "Not found", the same as a name that doesn't exist, so nobody can tell the two apart.
+
+Here's what a page shows, and what it never shows:
+
+| Shown | Never shown |
+|---|---|
+| name and description | the vault folder (it's the player's CD key) and the file name |
+| race (the subrace, when the player set one), gender, deity | ability scores, skills, feats, alignment |
+| level and classes | experience, hit points |
+| what they wear, by name, only with `gear` | the pack and bags, gold, quest variables, where they are |
+| | when the character last played |
+
+That's what the player wrote for others to read, and what anyone meeting the character in the game could tell.
+The rest stays between the player and your team (chapter 9, step 24 explains why). The pages also ask search
+engines not to list them: a player asked for a page for their friends, not for a search engine.
+
+How a player asks, and how you know it's them:
+
+- **To get a page,** they ask a member of your team in the game, while playing that character. When they joined,
+  the game wrote their player name and vault folder into its log (`aria (QR7KX2PL) Joined as Player 1`), and the
+  team key's log route (chapter 9, step 8) shows that line. The file is the character's name in lower case, letters
+  only, at most 16 of them, and `/api/v1/game/vault/QR7KX2PL` lists the files to be sure.
+- **To take a page down,** anyone who asks gets it taken down, anywhere, without proving anything. Removing a page
+  can't hurt anyone.
+
+A chat command in the game that writes the list for you is a nice later step, once your module has one. The list
+stays the lock either way.
+
+#### 22. ADAPT. Add the files to your site
+
+Change: the names in the two pages.
+
+```sh
+cd ~/mysite
+git switch -c character-pages
+cp ~/nwn-server-playbook/templates/site/characters/* .
+```
+
+That replaces your `Dockerfile` and `nginx.conf` with ones that serve the status page and the character pages,
+and adds:
+
+- [`characters.js`](../templates/site/characters/characters.js), run by nginx on the server: it reads the list,
+  asks the API for a listed character's sheet with the read key, and keeps only the fields in the table above;
+- [`character.html`](../templates/site/characters/character.html), one page for every character, and
+  [`characters.html`](../templates/site/characters/characters.html), the list;
+- `characters.txt`, the list, empty.
+
+Put your world's name and colour in the two pages, as you did for the status page, and a link on your front page
+if you like: `<p><a href="/characters.html">Characters</a></p>`. Push the branch, open a pull request and merge it.
+Nothing new is needed in Coolify: the site uses the same two settings as its status page.
+
+The list goes into the image, in nginx's own folder, never among the pages: `/characters.txt` on your site is "not
+found". That matters, because the vault folders are your players' CD keys. Keep the site's repository private.
+
+#### 23. GENERIC. A first page
+
+When a player asks, add their line to `characters.txt` in a pull request, and merge it:
+
+```
+aria-brightwater   QR7KX2PL   ariabrightwater   gear
+```
+
+Coolify builds the site again. Then:
+
+```sh
+curl -s https://www.example.org/characters/aria-brightwater.json
+curl -sI https://www.example.org/characters/aria-brightwater.json | grep -iE '^HTTP|cache-control|x-status-cache'
+curl -s -o /dev/null -w '%{http_code}\n' https://www.example.org/characters/somebody-else.json
+```
+
+The first is everything a visitor's browser gets, something like:
+
+```json
+{"slug":"aria-brightwater","name":"Aria Brightwater","description":"Aria keeps the old lighthouse on the cliffs...","race":"Moon Elf","gender":"Female","deity":"Sehanine","level":5,"classes":[{"name":"Ranger","level":3},{"name":"Fighter","level":2}],"gear":[{"slot":"chest","name":"Chainmail"},{"slot":"right_hand","name":"Longsword"}]}
+```
+
+The second shows `200`, `cache-control: public, max-age=300` and `x-status-cache`, and the third `404`. Open
+`https://www.example.org/characters/aria-brightwater` in your browser to see the page, and `/characters.html` for
+the list.
+
+And the same check as for the status page: **View source** on the character page, and search for the first few
+characters of your read key, and for the player's vault folder. Neither is there.
+
+#### 24. GENERIC. Taking a page down
+
+Remove the line from `characters.txt` and merge. The site's new container starts with nothing kept, so the page says
+"Not found" as soon as the deploy is done. A browser that had the page open in the last five minutes may show it
+until it asks again.
+
+When a character leaves the game (chapter 9, step 26), its page says "Not found" too, within five minutes; take its
+line out of the list when you next change it.
+
+#### 25. GENERIC. Know what visitors see when things go wrong
+
+- **The API is down:** pages already kept are served as they were, for up to a day, while the site keeps asking.
+  A page nobody has opened since the site started says "Can't tell right now".
+- **The character's file can't be read:** "Not found", and the site's log in Coolify has a line starting
+  `characters:` that names the page and what the API said.
+- **Cloudflare** needs nothing new, as for the status page: it passes the JSON through, and the site's own
+  five-minute cache is the one that protects the API.
+
+### The agent playbook
+
+If you work with an AI agent,
+[`playbooks/11-website-tier3-characters.md`](../playbooks/11-website-tier3-characters.md) has these steps in a fixed
+shape it can follow. A person decides every line of the list; the agent never adds a character on its own.
+
+### Lessons
+
+- **The read key reads every character, so the site needs a lock.** The API can't know which players want a page.
+  The list is that lock, and a name that isn't on it never reaches the API.
+- **Opt in when you can't ask.** Without a sign-in, a player has no way to say no to a page they never knew about.
+  So nobody has one until they ask, and anybody can have one taken down.
+- **Not found looks the same, whatever the reason.** A character that isn't listed, one that doesn't exist and one
+  that was taken out of play all answer the same way, so a page can't be used to find out who plays here.
+- **Pick fields, don't drop them.** `characters.js` copies the few fields the page shows by name. When the API
+  learns something new about characters, the page stays as it was until you choose otherwise.
+- **nginx's JavaScript is not quite a browser's.** The first version of `characters.js` used ordinary modern
+  JavaScript, and nginx refused to start (`Token "of" not supported`, then `await in arguments not supported`). The
+  file now keeps to what nginx's own engine knows, and an nginx that won't start says why in the site's log.
+
+### Tested
+
+On 2026-11-26, with Coolify 4.7.5 and nginx 1.29 with its JavaScript module, on the two servers of chapter 9's tier 3
+test (nwn-ops-api at `fb5fea1` with the game data part and two test characters in the vault). The website was a
+Coolify application built from a throwaway private GitHub repository holding the tier 2 site (front page and status
+page), with a deploy key, and a temporary name in our own domain pointed at the control host through Cloudflare's
+proxy. Deploys were started through Coolify's API, as the webhook from tier 2 would.
+
+- the pull request with the template files, merged: the list page saying no character has a page yet, and the test
+  character's page `404`;
+- a second pull request adding the test character with `gear`: the page and the list in a browser, through
+  Cloudflare, at desktop and phone widths and in dark mode, with name, description, subrace, classes, level, gender,
+  deity and what she wears;
+- the second test character, in the vault but not listed: "Not found", `404`, and no call for it in the API's log;
+- the colour code in her name taken out, the name shown plain;
+- the cache: `public, max-age=300`, `x-status-cache` `HIT`, Cloudflare `DYNAMIC`;
+- the read key absent from every page and file the site serves, from the image's history, and refused by the API
+  for a restart and a retire (`403`); the vault folder, the file name, her gold and her quest variable absent from
+  every page and answer;
+- `/characters.txt`, `/characters.js` and a path with `..`: `404`;
+- the API stopped for six minutes: the page and the list served from what the site had kept;
+- the list line removed and merged: the page "Not found" right after the deploy;
+- the agent playbook as written, after its roll back (both pull requests reverted: the site back to its status page,
+  the character addresses `404`): the pull request, the empty list, a character added and checked, Verify all `0`,
+  and the page taken down again. A person's part (merging) was played by me, and deploys were started through
+  Coolify's API.
+
+The test characters were made for the test, not played (chapter 9's tier 3 says how), so the player's side of
+asking, and finding their vault folder from the game's log, wasn't tried with a real login.
+
+Not tested: a vault folder named after a player name with a space in it (the list's `%20`), many characters in the
+list at once, and the dashboard forms by hand.
