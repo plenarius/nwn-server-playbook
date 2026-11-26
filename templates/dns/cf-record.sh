@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# One address record at Cloudflare DNS: show it, create it or delete it.
+# One address record at Cloudflare DNS: show it, create it, move it or delete it.
 #
 #   cf-record.sh show   NAME            NAME is the full name, e.g. game.example.org
 #   cf-record.sh create NAME ADDRESS    ADDRESS is an IPv4 address; this makes an A record
+#   cf-record.sh move   NAME ADDRESS    point a record this script made at a new IPv4 address
 #   cf-record.sh delete NAME
 #
 # Needs two settings in the environment, put there by a person:
@@ -41,7 +42,7 @@ for x in (r if isinstance(r, list) else [r]):
 }
 
 cmd=${1:-} name=${2:-}
-[ -n "$cmd" ] && [ -n "$name" ] || { sed -n '2,7p' "$0" >&2; exit 2; }
+[ -n "$cmd" ] && [ -n "$name" ] || { sed -n '2,8p' "$0" >&2; exit 2; }
 existing=$(api GET "$API?name=$name" | records)
 
 case $cmd in
@@ -61,6 +62,14 @@ print(json.dumps({"type": t, "name": n, "content": a, "ttl": int(ttl), "proxied"
       "$type" "$name" "$addr" "$TTL" "$TAG")
     api POST "$API" "$body" | records | awk '{print "created", $1, $2, $3, $4, "ttl", $5}'
     ;;
+  move)
+    addr=${3:?give the new address}
+    [[ $addr =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "$addr is not an IPv4 address" >&2; exit 2; }
+    [ "$(printf '%s\n' "$existing" | grep -c .)" = 1 ] || { echo "$name must have exactly one record to move" >&2; exit 1; }
+    read -r type rname old _ _ id comment <<< "$existing"
+    [ "$comment" = "$TAG" ] || { echo "not moving $rname: it was not made by this script" >&2; exit 1; }
+    api PATCH "$API/$id" "{\"content\": \"$addr\"}" | records | awk -v old="$old" '{print "moved", $1, $2, "from", old, "to", $3}'
+    ;;
   delete)
     [ -n "$existing" ] || { echo "no record for $name"; exit 0; }
     echo "$existing" | while read -r type rname addr _ _ id comment; do
@@ -72,5 +81,5 @@ print(json.dumps({"type": t, "name": n, "content": a, "ttl": int(ttl), "proxied"
       echo "deleted $type $rname $addr"
     done
     ;;
-  *) sed -n '2,7p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,8p' "$0" >&2; exit 2 ;;
 esac

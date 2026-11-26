@@ -26,9 +26,9 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 | 4 | The game server and NWNX | [chapter](chapters/04-game-server.md) | [tier 1](playbooks/04-game-server.md), [tier 2](playbooks/04-game-server-tier2.md) | Tiers 1 and 2 written and tested; tier 3 to come |
 | 5 | The database | [chapter](chapters/05-database.md) | [playbook](playbooks/05-database.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 6 | Your module in git | [chapter](chapters/06-module.md) | [playbook](playbooks/06-module.md) | Tier 1 written and tested; tiers 2 and 3 to come |
-| 7 | Custom content: haks, the talk table and NWSync | [chapter](chapters/07-haks-nwsync.md) | [playbook](playbooks/07-haks-nwsync.md) | Tier 1 written and tested; tiers 2 and 3 to come |
+| 7 | Custom content: haks, the talk table and NWSync | [chapter](chapters/07-haks-nwsync.md) | [tier 1](playbooks/07-haks-nwsync.md), [tier 2](playbooks/07-haks-nwsync-tier2.md) | Tiers 1 and 2 written and tested (staging to come); tier 3 to come |
 | 8 | CI and runners | | | Tier 1 is covered by chapter 6 (the compile check); not written yet |
-| 11 | A website | [chapter](chapters/11-website.md) | [playbook](playbooks/11-website.md) | Tier 1 written and tested; tiers 2 and 3 to come |
+| 11 | A website | [chapter](chapters/11-website.md) | [tier 1](playbooks/11-website.md), [tier 2](playbooks/11-website-tier2.md) | Tier 1 and tier 2's move to the control host written and tested; the rest of tier 2 and tier 3 to come |
 | 12 | Backups and restore | [chapter](chapters/12-backups.md) | [playbook](playbooks/12-backups.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 13 | Monitoring and alerting | | | Tier 1 is covered by chapter 4 (the health check); not written yet |
 | 16 | Day to day: releasing | [chapter](chapters/16-releasing.md) | [playbook](playbooks/16-releasing.md) | Tier 1 written and tested; tiers 2 and 3 to come |

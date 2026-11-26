@@ -125,3 +125,14 @@ Hand back to a person, with what you found, before any of these:
   attempts can get your address limited;
 - `Host key verification failed` when you log in by name;
 - the source (step 3) still not answering after a minute.
+
+## Moving a name
+
+Later chapters (7 and 11, tier 2) move a name to another machine. Only after the person's yes:
+
+```sh
+templates/dns/cf-record.sh move $NAME $NEW_ADDRESS
+```
+
+Success: `moved A $NAME from ... to $NEW_ADDRESS`. It moves only a record this script made, and only one with a
+single address. Check it at the source as in step 3 before anything depends on it.
