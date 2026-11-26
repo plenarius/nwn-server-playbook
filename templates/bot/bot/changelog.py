@@ -53,9 +53,11 @@ def embed_for(item: dict) -> discord.Embed:
 
 
 class Changelog:
-    def __init__(self, client: discord.Client, settings):
+    def __init__(self, client: discord.Client, settings, others: dict | None = None):
         self.client = client
         self.s = settings
+        # Other events on the same signed receiver, {event: async handler(event, payload) -> (status, text)}: the reports' issues.
+        self.others = others or {}
         self.queue: asyncio.Queue = asyncio.Queue()
         self.seen: OrderedDict[str, None] = OrderedDict()  # a redelivered event is posted once
 
@@ -75,7 +77,12 @@ class Changelog:
         if event == "ping":
             log.info("webhook ping from %s", (payload.get("repository") or {}).get("full_name", "?"))
             return web.Response(text="pong")
-        item = entry(payload, self.s.changelog_repos, self.s.changelog_skip_label) if event == "pull_request" else None
+        if event in self.others:
+            status, text = await self.others[event](event, payload)
+            return web.Response(status=status, text=text)
+        item = None
+        if event == "pull_request" and self.s.changelog_channel_id:
+            item = entry(payload, self.s.changelog_repos, self.s.changelog_skip_label)
         if item is None:
             return web.Response(status=202, text="ignored")
         if item["key"] in self.seen:

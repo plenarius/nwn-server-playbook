@@ -31,6 +31,12 @@ services:
       GAME_TLK_DIR: ${GAME_TLK_DIR:-}
       # The vault routes (characters, sheets, retire): off unless on. A vault folder's name is a player's CD key.
       GAME_VAULT: ${GAME_VAULT:-off}
+      # The roster of who's online (chapter 10, tier 3): a read-only database account and the query behind it.
+      MYSQL_HOST: ${MYSQL_HOST:-}
+      MYSQL_USER: ${MYSQL_USER:-}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-}
+      MYSQL_DB: ${MYSQL_DB:-nwn}
+      ONLINE_SQL: ${ONLINE_SQL:-}
     ports:
       # Only on the control host's private address. The API can stop your game, so it never goes on a public one.
       - "${OPS_API_BIND:-10.77.0.1}:8100:8100"

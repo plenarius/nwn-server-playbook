@@ -45,6 +45,11 @@ services:
       NWNX_SQL_DATABASE: nwn
       NWNX_SQL_USERNAME: nwn
       NWNX_SQL_PASSWORD: test
+      # The Discord bot's chat bridge (chapter 10, tier 3): its tests shout through NWNX_Chat, and text crosses
+      # to and from the database as UTF-8, as on the server.
+      NWNX_CHAT_SKIP: "n"
+      NWNX_SQL_USE_UTF8: "true"
+      NWNX_SQL_CHARACTER_SET: utf8mb4
       # Starts the tests as the module loads; run.sh passes --filter in TEST_FILTER.
       NWNX_UTIL_PRE_MODULE_START_SCRIPT_CHUNK: >-
         SetLocalString(GetModule(), "TEST_FILTER", "${TEST_FILTER:-t_}"); ExecuteScript("t_boot", GetModule());

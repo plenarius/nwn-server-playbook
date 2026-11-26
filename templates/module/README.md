@@ -26,6 +26,7 @@ Copy this folder to make the repository for your own module. Chapter 6 of the gu
 | `.gitignore` | Keeps built files out of git |
 | `migrations/` | Numbered SQL files that change the database's tables, run once each by the game host's `migrate.sh` (chapter 5, tier 2) |
 | `database/` | Two migrations (a work queue, revision counters) and three scripts that poll them, for chapter 5, tier 3. Copy the migrations into `migrations/` under the next numbers and the scripts into `src/nss/` |
+| `bot/` | The game's side of the Discord bot's chat bridge and roster (chapter 10, tier 3): two migrations, five scripts and four tests. Copy the migrations into `migrations/`, the scripts into `src/nss/` and `t_*.nss` with `inc_bridge_t.nss` into `tests/nss/` |
 | `example/mod_load.nss` | A small example script for the chapter's walk-through. Delete it when you are done |
 
 Your module's own files go in `src/`, where `nasher unpack` puts them.

@@ -33,3 +33,32 @@ def test_settings_need_a_webhook_secret(monkeypatch):
     monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "s" * 32)
     s = Settings.from_env()
     assert s.sync_commands and s.discord_gateway and s.refresh_seconds == 60
+
+
+def test_tier3_parts_need_their_settings(monkeypatch):
+    for k, v in dict(DISCORD_TOKEN="x", GUILD_ID="1", DASHBOARD_CHANNEL_ID="2", STAFF_ROLE_ID="3", OPS_API_KEY="k").items():
+        monkeypatch.setenv(k, v)
+    s = Settings.from_env()
+    assert not (s.reports_channel_id or s.bridge_channel_id or s.roster_channel_id)  # all off until set
+    monkeypatch.setenv("REPORTS_CHANNEL_ID", "5")
+    for missing in ("REPORTS_REPO", "GITHUB_TOKEN"):
+        try:
+            Settings.from_env()
+            raise AssertionError("reports without " + missing)
+        except SystemExit as e:
+            assert "REPORTS_REPO" in str(e)
+        monkeypatch.setenv(missing, "you/reports" if missing == "REPORTS_REPO" else "t")
+    monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "s" * 32)
+    assert Settings.from_env().report_reply_prefix == "to reporter:"
+    monkeypatch.setenv("BRIDGE_CHANNEL_ID", "6")
+    try:
+        Settings.from_env()
+        raise AssertionError("a bridge without a database account")
+    except SystemExit as e:
+        assert "BRIDGE_DB_USER" in str(e)
+
+
+async def test_only_the_bridge_asks_for_messages():
+    assert not Bot(settings()).intents.message_content
+    b = Bot(settings(bridge_channel_id=6))
+    assert b.intents.message_content and b.intents.guild_messages

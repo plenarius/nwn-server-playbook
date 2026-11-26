@@ -42,3 +42,7 @@ class OpsApi:
 
     async def cancel_restart(self) -> dict:
         return await self._call("POST", "/api/v1/server/cancel-restart")
+
+    async def online(self) -> dict:
+        """Who is online: {"count", "characters": [{"name"}]} (the API's ONLINE_SQL; DMs are left out there)."""
+        return await self._call("GET", "/api/v1/server/online")
