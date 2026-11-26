@@ -20,7 +20,7 @@ setting and route; this chapter is about running it in this guide's setup.
 When you're done, you'll have:
 
 - the API on the control host, reachable only on its private address, `10.77.0.1:8100`;
-- three keys: one for your staff's tools, one for you, and one kept in a safe;
+- four keys: one for a public status page, one for your staff's tools, one for you, and one kept in a safe;
 - status, logs, restart with a countdown, stop and start, all as API calls;
 - module and hak deploys from a staging folder, with a backup at the moment the game is stopped;
 - NWNX updates in one call, once the game is on the right kind of image tag;
@@ -133,20 +133,26 @@ with chapter 1, so the files are readable to it as they are. If your deploy user
 Be aware of what this key can do: `nwn` can run `docker`, and that's as good as root on the game host. It's the
 reason the key is made only for the API, lives only on the control host, and the API is never on a public address.
 
-### 5. GENERIC. Three keys, and who gets which
+### 5. GENERIC. Four keys, and who gets which
 
-Make three, each with `openssl rand -hex 32`, straight into your password manager:
+Make four, each with `openssl rand -hex 32`, straight into your password manager:
 
 | Key | Setting | Opens | Give it to |
 |---|---|---|---|
 | full | `OPS_API_KEY` | everything | nobody: it stays in the safe, for the day the others are lost |
 | admin | `OPS_API_ADMIN_KEY` | everything | you, and your own tools: stop, start, deploys, NWNX, releases |
-| team | `OPS_API_TEAM_KEY` | status, modules, logs, progress, restart and cancelling a restart | your staff's bot or page |
+| team | `OPS_API_TEAM_KEY` | what the read key opens, plus the game's log, restart and cancelling a restart | your staff's bot or page |
+| read | `OPS_API_READ_KEY` | status, modules and progress (without the log's lines), nothing that changes the game | your website's status page (chapter 11) |
 
 The admin key opens as much as the full key does. Having two means either can be changed without the other: if the
 admin key leaks, you make a new one and restart the API, and the full key is still there. A key that is known but
 not allowed on a route gets `403` ("it needs the admin key"), and a wrong key `401`, so a caller can tell the two
 apart.
+
+The read key is the one to hand to anything the public can reach, like a status page. It can see whether the game
+is up, who's on and since when, and that's all: it can't restart anything, and it doesn't get the game's log,
+which names players and the addresses they connect from. The API refuses to start with a key shorter than 16
+characters, and with a read key that's the same as one of the others, so a slip shows at once.
 
 ### 6. GENERIC. A Coolify token for the API
 
@@ -168,7 +174,7 @@ Paste in [`templates/ops-api/coolify.yaml`](../templates/ops-api/coolify.yaml). 
 publishes the API on `10.77.0.1` only, and mounts the two SSH files from step 4.
 
 Then the settings. [`templates/ops-api/ops-api.env.example`](../templates/ops-api/ops-api.env.example) has the
-ones this guide's setup uses, with a word on each. Fill in your image tag, the three keys, the Coolify token and the
+ones this guide's setup uses, with a word on each. Fill in your image tag, the four keys, the Coolify token and the
 game service's id (twice), and paste them into the service's **Environment variables**, in **Developer View**. Leave
 Redis, GitHub and Discord commented out for now. Two of them are worth a sentence:
 
@@ -473,6 +479,10 @@ host, a nightly backup, and Coolify on the control host managing both over WireG
   answering on `10.77.0.1`, refusing on `127.0.0.1`, and not reachable from outside.
 - Every route in this chapter with the key it needs; the team key refused on stop (`403`), a wrong key and no key
   (`401`); the release and repository routes off (`503`) without a GitHub token.
+- The read key, at `7b05e20` ([nwn-ops-api#3](https://github.com/plenarius/nwn-ops-api/pull/3)), on another fresh
+  pair the same day: steps 3 to 6 of the agent playbook as written, with four keys (`copied 16`); status, modules
+  and progress open to it, progress without the log's lines, the log and restart refused (`403`), and
+  `started_at` in the status matching Docker's start time. Chapter 11's status page uses it.
 - A Coolify token with only read, write and deploy: start, deploys and `NWN_MODULE` changes all worked with it.
 - Restart without Redis: the container made again at zero and healthy about 15 seconds later; a second restart
   refused (`409`); a cancel, and a cancel with nothing to cancel.

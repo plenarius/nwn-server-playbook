@@ -16,6 +16,7 @@ services:
       OPS_API_KEY: ${OPS_API_KEY}
       OPS_API_ADMIN_KEY: ${OPS_API_ADMIN_KEY}
       OPS_API_TEAM_KEY: ${OPS_API_TEAM_KEY}
+      OPS_API_READ_KEY: ${OPS_API_READ_KEY}
       GAME_HOST: ${GAME_HOST:-10.77.0.2}
       SSH_USER: ${SSH_USER:-nwn}
       SSH_KNOWN_HOSTS: /data/ssh/known_hosts

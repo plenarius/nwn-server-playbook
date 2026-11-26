@@ -353,7 +353,7 @@ When you're done, you'll have:
 
 This part assumes chapter 9's setup: the operations API ([nwn-ops-api](https://github.com/plenarius/nwn-ops-api))
 running in Coolify on the control host, listening only on the control host's private address, `10.77.0.1:8100`, with
-a team key made for your staff's tools. The website from the first part runs on that same control host, so the two
+the read key from its step 5. The website from the first part runs on that same control host, so the two
 talk without leaving the machine.
 
 ### What Layonara does
@@ -380,7 +380,7 @@ talks to the API. It asks your own site for `/status.json`, and the site's web s
 
 ```
 visitor's browser  --  /status.json  -->  your site (nginx, on the control host)
-                                              |  team key, over the private address
+                                              |  read key, over the private address
                                               v
                                           operations API  --  SSH  -->  game host
 ```
@@ -399,10 +399,11 @@ The API's full answer says more than the page shows: which modules are staged, w
 changes are pending. That's your team's business, so `status.js` passes on only what the page needs. A field
 added to the API later stays private too, until you choose to show it.
 
-One thing to know about the key. In nwn-ops-api today, the smallest key is the team key, and it can also restart
-the game. It never leaves the control host: it lives in Coolify, and in the environment of the one container that
-uses it, which only ever asks two questions. Anyone who can reach it there could already do much more, since they'd
-be on your control host.
+The website gets the API's read key, which can only read. It can ask whether the game is up, how many are playing,
+which module runs and since when; it can't restart or change anything, and it doesn't get the game's log, which
+names players and their addresses. It still stays on the server: it lives in Coolify, and in the environment of the
+one container that uses it. If that key ever got out, nobody could do more with it than look: the state, the
+players, the modules, what's waiting to go live.
 
 #### 16. ADAPT. Add the files to your site
 
@@ -441,7 +442,7 @@ In Coolify, open the website application, **Environment Variables**, and add two
 | Name | Value |
 |---|---|
 | `OPS_API_URL` | `http://10.77.0.1:8100`, the API's private address from chapter 9 |
-| `OPS_API_TEAM_KEY` | the team key from chapter 9, from your password manager |
+| `OPS_API_READ_KEY` | the read key from chapter 9, from your password manager |
 
 For both, **untick "Available at Buildtime"**, and leave "Available at Runtime" ticked. This one matters: Coolify
 ticks build time by default, and then writes the value into the image as it builds it, where `docker history`
@@ -449,6 +450,10 @@ shows it to anyone on the control host for as long as the image exists. The site
 
 If Coolify lists the two again under **Preview Deployments**, delete those copies. Previews of pull requests don't
 need the key.
+
+If you set up chapter 9 before it had a read key, make one now with `openssl rand -hex 32`, add it to the API's
+settings in Coolify as `OPS_API_READ_KEY`, and redeploy the API (between restarts and deploys, since a countdown
+in progress lives in the API). Please don't give the site the team key instead: that one can restart the game.
 
 Nothing needs opening in a firewall: the site and the API are on the same machine, and the site reaches the API's
 private address directly. On the test, it worked with the firewall exactly as chapter 1 left it.
@@ -469,10 +474,11 @@ The first command shows `200`, `cache-control: public, max-age=30`, and `x-statu
 `HIT` straight after. The second shows the whole of what visitors get, something like:
 
 ```json
-{"state":"online","players":0,"module":"mymodule","started":"2026-11-26T15:56:47.000Z","restart_at":null,"checked":"2026-11-26T16:06:54.663Z"}
+{"state":"online","players":0,"module":"mymodule","started":"2026-11-26T17:28:01+00:00","restart_at":null,"checked":"2026-11-26T17:28:17.502Z"}
 ```
 
-`module` is the version when your module's name carries one (`world_2-05` shows as `2.05`; the API's
+`started` is when the game's container last started, as Docker knows it; the page shows it in the visitor's own
+time. `module` is the version when your module's name carries one (`world_2-05` shows as `2.05`; the API's
 `MODULE_VERSION_REGEX` setting decides), and the name itself otherwise. `restart_at` is set during a restart countdown, once your module handles
 chapter 9's restart command; the page then says when.
 
@@ -493,7 +499,8 @@ You don't have to do anything here; it's so nothing surprises you.
 
 When the page doesn't look right, the site's log in Coolify says why, in lines that start with `status:`. For
 example, `the operations API did not answer: connect failed` means the API isn't running, and `set OPS_API_URL and
-OPS_API_TEAM_KEY` means step 17 is missing.
+OPS_API_READ_KEY` means step 17 is missing, and `answered 401` means the API doesn't know the site's key:
+the read key in the API's settings (chapter 9) and in the site's aren't the same.
 
 #### 20. GENERIC. Cloudflare needs nothing new
 
@@ -512,6 +519,8 @@ there, set for run time only, and that no page shows it. It asks before it opens
 
 - **A key in a web page is a key for everyone.** The browser asks your site; your site asks the API. It's one more
   file, and it's the difference between a status page and an open door.
+- **A public page gets a key that can only read.** The page needs to look, never to act, so its key can't do
+  more. On the test, the site's key got `403` on a restart.
 - **Show the public only what you mean to.** Pass on the fields the page needs, by name. An API grows, and a page
   that forwards everything forwards tomorrow's private fields too.
 - **Untick "Available at Buildtime" for secrets in Coolify.** On the test, the key went into the image's history
@@ -545,6 +554,22 @@ pointed at the control host through Cloudflare's proxy.
 - the site with no settings at all (at home): `503` and the `status:` line in its log that names the two settings.
 
 The application and its settings were made through Coolify's API, which does what the dashboard pages do.
+
+Then again the same day with nwn-ops-api at commit `7b05e20`, for the read key and `started_at`, on a fresh pair
+of servers set up the same way, except that the API ran as the Coolify service of chapter 9's agent playbook (steps
+3 to 6, all as written, with four keys):
+
+- the site holding only the read key, set for run time: the page "Online" with the player count, the module and
+  "Up since" in the browser's own time;
+- the game stopped and started again: "Offline", then "Online" with an "Up since" matching the game container's
+  new start time to the second;
+- the site's own key: `403` on a restart, from the playbook's Verify; absent from every page and file the site
+  serves, from the image's history and from every layer of the saved image;
+- the read key on the API: status, modules and progress open, progress with no log lines, the log refused (`403`).
+
+The API's restart couldn't start the game again in that test, because the game there was a plain Docker Compose
+project and not the Coolify service of chapter 4's tier 2; it was started again by hand. Restarts through Coolify
+were tested in chapter 9.
 
 Not tested: a player online (the count was 0 throughout), the restart countdown on the page (it needs chapter 9's
 Redis part), the dashboard forms by hand, and the page in dark mode (it uses the front page's colours, which were

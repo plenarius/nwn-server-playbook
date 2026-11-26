@@ -21,7 +21,7 @@ Secrets, never printed and never in your prompt:
 - `COOLIFY_TOKEN`: your Root token for Coolify's API, placed by a person as in playbook 3.
 - The API's own Coolify token: a person makes it in the dashboard with **read**, **write** and **deploy** only
   (chapter, step 6) and puts it in `~/ops-api/keys/coolify` on the control host (`umask 077`).
-- The three API keys: step 3 makes them on the control host in `~/ops-api/keys/{full,admin,team}`. Tell the person
+- The four API keys: step 3 makes them on the control host in `~/ops-api/keys/{full,admin,team,read}`. Tell the person
   to copy them into their password manager; never read them out.
 
 All calls to the API run on the control host and read their key from those files.
@@ -61,15 +61,15 @@ Success: one line, `nwn-ops-api:` and seven characters. Note it as `OPS_IMAGE`.
 ### 3. Keys
 
 ```sh
-ssh $DEPLOY_USER@$CONTROL 'umask 077; mkdir -p ~/ops-api/keys ~/ops-api/ssh && for k in full admin team; do test -s ~/ops-api/keys/$k || openssl rand -hex 32 > ~/ops-api/keys/$k; done
+ssh $DEPLOY_USER@$CONTROL 'umask 077; mkdir -p ~/ops-api/keys ~/ops-api/ssh && for k in full admin team read; do test -s ~/ops-api/keys/$k || openssl rand -hex 32 > ~/ops-api/keys/$k; done
   test -s ~/ops-api/ssh/id_ed25519 || ssh-keygen -q -t ed25519 -N "" -C nwn-ops-api -f ~/ops-api/ssh/id_ed25519
-  ssh-keyscan -q -t ed25519 10.77.0.2 > ~/ops-api/ssh/known_hosts; chmod 644 ~/ops-api/ssh/known_hosts; wc -c ~/ops-api/keys/full ~/ops-api/keys/admin ~/ops-api/keys/team | head -3; id -u'
+  ssh-keyscan -q -t ed25519 10.77.0.2 > ~/ops-api/ssh/known_hosts; chmod 644 ~/ops-api/ssh/known_hosts; wc -c ~/ops-api/keys/full ~/ops-api/keys/admin ~/ops-api/keys/team ~/ops-api/keys/read | head -4; id -u'
 ssh $DEPLOY_USER@$CONTROL 'cat ~/ops-api/ssh/id_ed25519.pub' | ssh $DEPLOY_USER@$GAME 'k=$(cat); grep -qxF "$k" ~/.ssh/authorized_keys || echo "$k" >> ~/.ssh/authorized_keys; grep -c nwn-ops-api ~/.ssh/authorized_keys'
 ssh $DEPLOY_USER@$CONTROL "ssh -i ~/ops-api/ssh/id_ed25519 -o UserKnownHostsFile=~/ops-api/ssh/known_hosts -o BatchMode=yes $DEPLOY_USER@10.77.0.2 'docker ps -q --filter name=nwserver | wc -l'"
 ```
 
-Success: three files of `65` bytes; `1000`; `1`; `1`. If `id -u` isn't `1000`, run
-`sudo chown 1000 ~/ops-api/ssh/id_ed25519 ~/ops-api/ssh/known_hosts` on the control host. Tell the person the three
+Success: four files of `65` bytes; `1000`; `1`; `1`. If `id -u` isn't `1000`, run
+`sudo chown 1000 ~/ops-api/ssh/id_ed25519 ~/ops-api/ssh/known_hosts` on the control host. Tell the person the four
 keys are in `~/ops-api/keys` on the control host, to copy into their password manager.
 
 ### 4. The service, with its settings
@@ -83,7 +83,7 @@ ssh $DEPLOY_USER@$CONTROL "cd ~/ops-api/keys && python3 -c '
 import json, sys
 r = lambda f: open(f).read().strip()
 env = {\"OPS_API_IMAGE\": \"$OPS_IMAGE\", \"OPS_API_BIND\": \"10.77.0.1\",
-       \"OPS_API_KEY\": r(\"full\"), \"OPS_API_ADMIN_KEY\": r(\"admin\"), \"OPS_API_TEAM_KEY\": r(\"team\"),
+       \"OPS_API_KEY\": r(\"full\"), \"OPS_API_ADMIN_KEY\": r(\"admin\"), \"OPS_API_TEAM_KEY\": r(\"team\"), \"OPS_API_READ_KEY\": r(\"read\"),
        \"GAME_HOST\": \"10.77.0.2\", \"SSH_USER\": \"$DEPLOY_USER\", \"SSH_SUDO\": \"true\", \"GAME_DIR\": \"/home/$DEPLOY_USER/game\",
        \"COOLIFY_ENV_FILE\": \"/data/coolify/services/$GAME_SVC/.env\", \"DEPLOY_HOOK\": \"/home/$DEPLOY_USER/game/backup.sh\",
        \"COOLIFY_API_URL\": \"http://10.77.0.1:8000\", \"COOLIFY_TOKEN\": r(\"coolify\"), \"COOLIFY_SERVICE_UUID\": \"$GAME_SVC\",
@@ -94,7 +94,7 @@ cl POST "/deploy?uuid=$OPS_SVC&force=false" > /dev/null
 for i in $(seq 30); do s=$(ssh $DEPLOY_USER@$CONTROL "docker inspect -f '{{.State.Health.Status}}' ops-api-$OPS_SVC 2>/dev/null"); [ "$s" = healthy ] && break; sleep 5; done; echo $s
 ```
 
-Success: an id, `copied 15`, `healthy`. Never print `$T` or any answer about the service's variables.
+Success: an id, `copied 16`, `healthy`. Never print `$T` or any answer about the service's variables.
 
 ### 5. Reachable only where it should be
 
@@ -111,10 +111,10 @@ Success: `{"status":"ok"}`, `refused locally`, `configured: game, deploy, haks, 
 ssh $DEPLOY_USER@$CONTROL 'A=http://10.77.0.1:8100/api/v1
 k() { curl -s -o /dev/null -w "%{http_code} " -H @<(printf "Authorization: Bearer %s\n" "$(cat ~/ops-api/keys/$1)") "${@:2}"; }
 for p in server/status server/modules "server/logs?lines=3" server/progress; do k team $A/$p; done; k admin $A/meta/systems
-k team -X POST -H "Content-Type: application/json" -d "{}" $A/server/stop; curl -s -o /dev/null -w "%{http_code} " -H "Authorization: Bearer wrong" $A/server/status; k admin $A/server/repos; echo'
+k team -X POST -H "Content-Type: application/json" -d "{}" $A/server/stop; k read $A/server/status; k read "$A/server/logs?lines=3"; k read -X POST -H "Content-Type: application/json" -d "{}" $A/server/restart; curl -s -o /dev/null -w "%{http_code} " -H "Authorization: Bearer wrong" $A/server/status; k admin $A/server/repos; echo'
 ```
 
-Success: `200 200 200 200 200 403 401 503`.
+Success: `200 200 200 200 200 403 200 403 403 401 503`.
 
 ### 7. The NWNX tag
 
