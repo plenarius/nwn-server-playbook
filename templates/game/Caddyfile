@@ -1,0 +1,4 @@
+# The web server reads one small file per site from the folder "sites".
+# Copy a file there from "sites-available" to switch that site on, and set its name in .env.
+# Caddy gets and renews the certificate for each site by itself.
+import sites/*.caddy
