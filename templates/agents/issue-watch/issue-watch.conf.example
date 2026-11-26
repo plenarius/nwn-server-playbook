@@ -1,0 +1,18 @@
+# Settings for issue-watch.sh. Copy to ~/.config/issue-watch/issue-watch.conf, with your prompt files beside
+# it. Bash syntax. No secrets: GH_TOKEN comes from the agent's secrets file. Chapter 15, tier 3.
+
+# One row per repository: owner/repo, its checkout here, the branch fixes start from, the prompt file.
+WATCH=(
+  "my-team/module   $HOME/dev/module   main  triage-prompt.md"
+)
+
+# Where it keeps the baseline and done markers.
+STATE=$HOME/.local/state/issue-watch
+SECRETS=/run/agent/secrets.env
+
+# The command that starts one agent. It reads the filled-in prompt on standard input and has REPO, N, TITLE,
+# DIR, BASE and BRANCH in its environment. It should return when the agent has finished.
+# T3 Code: a thread in its own worktree, on a branch for this issue.
+AGENT_CMD='t3 thread start "$DIR" - --title "Issue #$N: ${TITLE:0:60}" --worktree "origin/$BASE" --branch "$BRANCH" --wait --json'
+# Claude Code on its own, in a worktree of its own:
+# AGENT_CMD='w="$DIR-issues/$N"; git -C "$DIR" worktree add -q -b "$BRANCH" "$w" "origin/$BASE" && cd "$w" && claude -p --permission-mode acceptEdits'

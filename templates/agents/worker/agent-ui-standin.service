@@ -1,0 +1,15 @@
+# A stand-in for your agent tool's server, for testing the tunnel and the memory settings before you install
+# the real one. It answers on the same loopback port. A user unit of the agent account:
+#   install -D -m 644 agent-ui-standin.service ~/.config/systemd/user/t3code.service
+#   systemctl --user daemon-reload && systemctl --user enable --now t3code.service
+# Replace it with the real server (its installer writes this unit) when the tests pass. Chapter 15, tier 3.
+[Unit]
+Description=Stand-in agent server on 127.0.0.1:3773
+
+[Service]
+ExecStart=/usr/bin/python3 -m http.server --bind 127.0.0.1 --directory %h/standin 3773
+ExecStartPre=/bin/sh -c 'mkdir -p %h/standin && echo "agent server stand-in on %H" > %h/standin/index.html'
+Restart=always
+
+[Install]
+WantedBy=default.target

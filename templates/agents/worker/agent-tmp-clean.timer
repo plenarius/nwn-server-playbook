@@ -1,0 +1,11 @@
+# Chapter 15, tier 3.
+[Unit]
+Description=Hourly: remove finished agent sessions' scratch from /tmp
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1h
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target
