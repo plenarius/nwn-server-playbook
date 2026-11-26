@@ -1,0 +1,60 @@
+# The dev server: a game of its own on the control host, for builders and scripters to try things (chapter 14).
+# Paste this into Coolify as a Docker Compose service on the control host (the server called "localhost").
+#
+# It has its own folders in /home/nwn/dev, its own database and its own passwords. Nothing in it points at the live
+# game. copy-db.sh fills its database with a scrubbed copy of the live one; dev.sh puts a module build on it.
+# Change the paths if your deploy user isn't nwn. The services have their own names (dev-nwserver, dev-mariadb), so
+# a script that looks for the live game's "nwserver" can never pick this one by mistake.
+services:
+  dev-nwserver:
+    image: ${NWNX_IMAGE}
+    environment:
+      NWN_PORT: ${NWN_PORT:-5121}
+      # Never listed in the game's public server list, whatever the settings say.
+      NWN_PUBLICSERVER: "0"
+      NWN_DMPASSWORD: ${NWN_DMPASSWORD}
+      NWN_ADMINPASSWORD: ${NWN_ADMINPASSWORD}
+      NWN_PLAYERPASSWORD: ${NWN_PLAYERPASSWORD}
+      NWNX_SQL_HOST: dev-mariadb
+      NWNX_SQL_PASSWORD: ${NWNX_SQL_PASSWORD}
+    ports:
+      - "${NWN_PORT:-5121}:${NWN_PORT:-5121}/udp"
+    volumes:
+      - /home/nwn/dev/home:/nwn/home
+      - /home/nwn/dev/logs:/nwn/run/logs.0
+    depends_on:
+      dev-mariadb:
+        condition: service_healthy
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    healthcheck:
+      # Healthy when the server answers a status query, the same question a player's game asks.
+      test:
+        - CMD
+        - perl
+        - -MIO::Socket::INET
+        - -e
+        - '$$p=$$ENV{NWN_PORT}||5121; $$s=IO::Socket::INET->new(PeerAddr=>"127.0.0.1",PeerPort=>$$p,Proto=>"udp") or exit 1; $$s->send("BNXI".pack("v",$$p)); $$SIG{ALRM}=sub{exit 1}; alarm 3; $$s->recv($$b,512); exit(substr($$b,0,4) eq "BNXR"?0:1)'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  dev-mariadb:
+    image: mariadb:${MARIADB_VERSION:-11.8}
+    environment:
+      MARIADB_DATABASE: ${NWNX_SQL_DATABASE:-nwn}
+      MARIADB_USER: ${NWNX_SQL_USERNAME:-nwn}
+      MARIADB_PASSWORD: ${NWNX_SQL_PASSWORD}
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+    volumes:
+      - /home/nwn/dev/db:/var/lib/mysql
+    # No "ports": only the dev game talks to this database, over Docker's own network.
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
