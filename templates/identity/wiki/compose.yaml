@@ -1,0 +1,46 @@
+# The wiki (chapter 11, tier 3), as a Coolify "Docker Compose" application built from the wiki folder of your
+# identity repository. Two containers: MediaWiki, and its own MariaDB. Coolify asks you for every ${...} below.
+# The wiki's address goes on the "wiki" service in Coolify (Domains: https://wiki.example.org).
+services:
+  wiki:
+    build: .
+    restart: unless-stopped
+    environment:
+      WIKI_URL: ${WIKI_URL:?}
+      WIKI_NAME: ${WIKI_NAME:-My World wiki}
+      WIKI_SECRET_KEY: ${WIKI_SECRET_KEY:?}
+      DB_HOST: mariadb
+      DB_NAME: wiki
+      DB_USER: wiki
+      DB_PASSWORD: ${DB_PASSWORD:?}
+      # Signing in through Authentik (its blueprint 10-sites.yaml has the other half).
+      AUTH_ISSUER: ${AUTH_ISSUER:?}
+      WIKI_CLIENT_SECRET: ${WIKI_CLIENT_SECRET:?}
+      # The shared header and the sign-in marker (chapter 11, tier 3).
+      SITE_URL: ${SITE_URL:?}
+      SSO_COOKIE_DOMAIN: ${SSO_COOKIE_DOMAIN:?}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  mariadb:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wiki
+      MARIADB_USER: wiki
+      MARIADB_PASSWORD: ${DB_PASSWORD:?}
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    volumes:
+      - database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+    labels:
+      # Chapter 12's hook 20-site-dbs.sh dumps every database with these two labels, nightly.
+      backup.dump: mariadb
+      backup.name: wiki
+
+volumes:
+  database:

@@ -1,0 +1,61 @@
+# A second step for your team (chapter 11, tier 3). Everyone signs in with a password; members of "team" also need
+# a code from an authenticator app or a security key, and are asked to set one up the first time. Members of
+# "team" can change things for everyone, so their accounts are the ones worth guarding.
+#
+# To ask everyone for a second step, delete this file and set not_configured_action: configure on Authentik's
+# own default-authentication-mfa-validation stage in a blueprint of your own.
+version: 1
+metadata:
+  name: Sites - second step for the team
+entries:
+  # Authentik's own blueprints this one builds on, applied first: on a brand-new install they may not have run yet.
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: {identifiers: {path: default/flow-default-authentication-flow.yaml}, required: true}
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: {identifiers: {path: default/flow-default-authenticator-totp-setup.yaml}, required: true}
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: {identifiers: {path: default/flow-default-authenticator-webauthn-setup.yaml}, required: true}
+
+  - model: authentik_core.group
+    id: group-team
+    identifiers: {name: team}
+
+  - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
+    id: team-mfa
+    identifiers: {name: team-mfa}
+    attrs:
+      device_classes: [totp, webauthn, static]
+      not_configured_action: configure
+      configuration_stages:
+        - !Find [authentik_stages_authenticator_totp.authenticatortotpstage, [name, default-authenticator-totp-setup]]
+        - !Find [authentik_stages_authenticator_webauthn.authenticatorwebauthnstage, [name, default-authenticator-webauthn-setup]]
+
+  # In the default sign-in flow, after the password (20) and before signing in (100). Authentik's own optional
+  # second step sits at 30 for everyone; this one is only for the team.
+  - model: authentik_flows.flowstagebinding
+    id: binding
+    identifiers:
+      target: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+      stage: !KeyOf team-mfa
+      order: 35
+    attrs:
+      evaluate_on_plan: false
+      re_evaluate_policies: true
+
+  # Only for members of "team", and only when Authentik's own step at 30 hasn't just checked a code: someone who
+  # already has an authenticator is asked once, someone who has none is asked to set one up here.
+  - model: authentik_policies_expression.expressionpolicy
+    id: team-without-code
+    identifiers: {name: team-without-code}
+    attrs:
+      expression: |
+        plan = request.context.get("flow_plan")
+        user = plan.context.get("pending_user") if plan else None
+        if not user or not ak_is_group_member(user, name="team"):
+            return False
+        return plan.context.get("auth_method") not in ("auth_mfa", "auth_webauthn_pwl")
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf binding
+      policy: !KeyOf team-without-code
+      order: 0

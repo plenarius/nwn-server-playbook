@@ -1,0 +1,115 @@
+# Sign-in for the website, the forum and the wiki (chapter 11, tier 3). Authentik's worker applies this file when
+# it starts and whenever it changes; applying it twice changes nothing. Change it here, in a pull request, never
+# in Authentik's admin pages: whatever you change there by hand, this file puts back within the hour.
+#
+# The secrets and addresses come from the container's environment (!Env), which Coolify fills in.
+version: 1
+metadata:
+  name: Sites - sign-in for website, forum and wiki
+entries:
+  # Authentik's own blueprints this one builds on, applied first: on a brand-new install they may not have run yet.
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: {identifiers: {path: system/providers-oauth2.yaml}, required: true}
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: {identifiers: {path: default/flow-default-provider-authorization-implicit-consent.yaml}, required: true}
+
+  # The groups a site may care about. "team" is your staff; chapter 11 shows how a site maps it to its own roles.
+  - model: authentik_core.group
+    id: group-team
+    identifiers: {name: team}
+  - model: authentik_core.group
+    id: group-members
+    identifiers: {name: members}
+
+  # Authentik's own "email" scope says email_verified: false for everyone. Our accounts come only by invitation,
+  # sent to that address and with the address fixed, so here it is true. The forum needs this: it won't sign
+  # anyone into an account by an address it can't trust, and asks them to confirm it by mail instead.
+  - model: authentik_providers_oauth2.scopemapping
+    id: scope-email
+    identifiers: {name: "sites: email (from the invitation)"}
+    attrs:
+      scope_name: email
+      description: Email address
+      expression: |
+        return {"email": request.user.email, "email_verified": bool(request.user.email)}
+
+  # Signing out of any site ends the Authentik session too, then lands on the website's front page. One flow for
+  # all three, so every "Sign out" ends in the same place. (Authentik would send people back to the site they
+  # came from only if that site hands back its ID token, which the forum's extension doesn't keep.)
+  - model: authentik_flows.flow
+    id: flow-sign-out
+    identifiers: {slug: sites-sign-out}
+    attrs: {name: Sign out, title: Signing out, designation: invalidation, authentication: none}
+  - model: authentik_stages_user_logout.userlogoutstage
+    id: stage-sign-out
+    identifiers: {name: sites-sign-out}
+  - model: authentik_stages_redirect.redirectstage
+    id: stage-to-website
+    identifiers: {name: sites-to-website}
+    attrs: {mode: static, target_static: !Format ["%s/", !Env SITE_URL], keep_context: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-sign-out, stage: !KeyOf stage-sign-out, order: 0}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-sign-out, stage: !KeyOf stage-to-website, order: 10}
+
+  # One provider and one application for each site. Every provider says its grant types out loud: a provider made
+  # without them (the API's and the model's default is an empty list) answers every sign-in with an error.
+  - model: authentik_providers_oauth2.oauth2provider
+    id: provider-website
+    identifiers: {name: website}
+    attrs: &provider
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !KeyOf flow-sign-out
+      client_type: confidential
+      client_id: website
+      client_secret: !Env WEBSITE_CLIENT_SECRET
+      grant_types: [authorization_code, refresh_token]
+      redirect_uris:
+        - {matching_mode: strict, url: !Format ["%s/auth/callback", !Env SITE_URL]}
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+      sub_mode: hashed_user_id
+      include_claims_in_id_token: true
+      access_code_validity: minutes=1
+      access_token_validity: minutes=10
+      property_mappings:
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+        - !KeyOf scope-email
+  - model: authentik_core.application
+    identifiers: {slug: website}
+    attrs:
+      name: Website
+      provider: !KeyOf provider-website
+      meta_launch_url: !Env SITE_URL
+
+  - model: authentik_providers_oauth2.oauth2provider
+    id: provider-forum
+    identifiers: {name: forum}
+    attrs:
+      <<: *provider
+      client_id: forum
+      client_secret: !Env FORUM_CLIENT_SECRET
+      redirect_uris:
+        - {matching_mode: strict, url: !Format ["%s/auth/oidc?provider=authentik", !Env FORUM_URL]}
+  - model: authentik_core.application
+    identifiers: {slug: forum}
+    attrs:
+      name: Forum
+      provider: !KeyOf provider-forum
+      meta_launch_url: !Env FORUM_URL
+
+  - model: authentik_providers_oauth2.oauth2provider
+    id: provider-wiki
+    identifiers: {name: wiki}
+    attrs:
+      <<: *provider
+      client_id: wiki
+      client_secret: !Env WIKI_CLIENT_SECRET
+      redirect_uris:
+        - {matching_mode: strict, url: !Format ["%s/index.php/Special:PluggableAuthLogin", !Env WIKI_URL]}
+  - model: authentik_core.application
+    identifiers: {slug: wiki}
+    attrs:
+      name: Wiki
+      provider: !KeyOf provider-wiki
+      meta_launch_url: !Env WIKI_URL

@@ -1,0 +1,38 @@
+# How the sign-in pages look (chapter 11, tier 3): your world's name and the same colours and fonts as your
+# website's shared header (templates/site/sso/embed/shell.css). Authentik's pages are built from PatternFly, so
+# the CSS sets PatternFly's own variables. Authentik puts this CSS into every part of the page, so it can't use
+# @import; copy colours across by hand when the website's change.
+version: 1
+metadata:
+  name: Sites - brand
+entries:
+  # Authentik's own blueprints this one builds on, applied first: on a brand-new install they may not have run yet.
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: {identifiers: {path: default/default-brand.yaml}, required: true}
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: {identifiers: {path: default/flow-default-authentication-flow.yaml}, required: true}
+
+  - model: authentik_brands.brand
+    identifiers: {domain: authentik-default}
+    attrs:
+      default: true
+      branding_title: My World
+      branding_custom_css: |
+        :root, :host {
+          --pf-global--BackgroundColor--100: #171512;
+          --pf-global--primary-color--100: #b07a32;
+          --pf-global--primary-color--200: #8a5a1c;
+          --pf-global--link--Color: #e0b070;
+          --pf-global--link--Color--hover: #f0c890;
+          --pf-global--FontFamily--sans-serif: system-ui, -apple-system, "Segoe UI", sans-serif;
+          --pf-global--FontFamily--heading--sans-serif: Georgia, "Iowan Old Style", serif;
+        }
+        .pf-c-login__main { border-radius: 14px; }
+        .pf-c-title { font-family: Georgia, "Iowan Old Style", serif; }
+      # Your logo, shown above the sign-in box: a picture on your website, such as its /embed/ folder.
+      # branding_logo: https://www.example.org/embed/logo.svg
+
+  # The heading on the sign-in page (Authentik's own says "Welcome to authentik!").
+  - model: authentik_flows.flow
+    identifiers: {slug: default-authentication-flow}
+    attrs: {title: Sign in to My World}

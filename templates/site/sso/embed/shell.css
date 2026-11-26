@@ -1,0 +1,24 @@
+/* The shared header's styles (chapter 11, tier 3). Everything is under .shell, so it can't change how the
+   forum's or the wiki's own pages look. Same colours as your front page; Authentik's brand (its blueprint
+   00-brand.yaml) has a copy of them. */
+.shell {
+  --shell-accent: #8a5a1c; --shell-ink: #1d1a16; --shell-paper: #faf7f2; --shell-line: #ddd5c8;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem;
+  padding: .6rem 1rem; background: var(--shell-paper); color: var(--shell-ink);
+  border-bottom: 1px solid var(--shell-line);
+  font: 500 .95rem/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  position: relative; z-index: 1000; box-sizing: border-box; width: 100%;
+}
+@media (prefers-color-scheme: dark) {
+  .shell { --shell-accent: #e0b070; --shell-ink: #ece6dc; --shell-paper: #171512; --shell-line: #37322b; }
+}
+.shell a { color: var(--shell-ink); text-decoration: none; }
+.shell a:hover, .shell a:focus-visible { color: var(--shell-accent); text-decoration: underline; }
+.shell-name { font: 600 1.15rem/1.2 Georgia, "Iowan Old Style", serif; margin-right: auto; }
+.shell .shell-name { color: var(--shell-accent); }
+.shell-nav { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+.shell-user { white-space: nowrap; }
+.shell-user a { color: var(--shell-accent); }
+.shell-user form { display: inline; margin: 0; }
+.shell-user button { all: unset; cursor: pointer; color: var(--shell-accent); }
+.shell-user button:hover, .shell-user button:focus-visible { text-decoration: underline; }

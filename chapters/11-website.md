@@ -784,3 +784,443 @@ asking, and finding their vault folder from the game's log, wasn't tried with a 
 
 Not tested: a vault folder named after a player name with a space in it (the list's `%20`), many characters in the
 list at once, and the dashboard forms by hand.
+
+## Tier 3, second part. One account for the website, a forum and a wiki
+
+### What you learn
+
+How to give your world one account per person, used by the website, a forum and a wiki, with the sign-in kept in
+one place you run yourself. And how to keep that place's whole configuration in git, so it can be rebuilt from a
+pull request and a backup.
+
+When you're done, you'll have:
+
+- **Authentik** on the control host: the one place that knows passwords, with its configuration as
+  **blueprints**, YAML files in your repository that it applies at every start;
+- the website, a **Flarum** forum and a **MediaWiki** wiki, each signing people in through Authentik with OpenID
+  Connect, the standard way for a site to ask "who is this?" of a sign-in service;
+- one sign-in that carries to all three sites, and one sign-out that ends all three;
+- the same header on all three, served by the website;
+- joining by invitation, and a second step (an authenticator app or a security key) for your team;
+- a nightly dump of the three databases with chapter 12's backups, and a restore you've tried.
+
+This part needs chapter 3's control host with Coolify, and this chapter's website from tier 2 (the character pages of
+the first part are kept, if you have them). Nothing here touches the game host.
+
+### What Layonara does
+
+- **One account for the website, the forums and the wiki,** in Authentik, with three OpenID Connect applications,
+  one per site, and a `groups` claim the sites read to know who's on the team.
+- **Sign-in carries across the sites with a marker cookie.** Signing in on any site sets a small cookie on our
+  parent domain that says "someone signed in" and grants nothing. A site that sees it without a session of its own
+  asks Authentik quietly; a site whose visitor lost it signs them out. This part copies that idea exactly.
+- **One header for every site**, served by the website as a piece of HTML and a stylesheet, and fetched by the
+  forum and the wiki on their own servers, kept ten minutes.
+- **Joining is by invitation.** Someone asks on the website, a member of the team says yes, and the website makes
+  an Authentik invitation with a token that may only make invitations. The new member picks a name and password on
+  Authentik's join page.
+- **A web account is linked to a game account by a code typed in the game** (step 37 below).
+- **Our forum is SMF**, with twenty years of posts, signing in through Authentik with a hook file of its own, and
+  our wiki is MediaWiki with the same two extensions as here. A new world has no old posts to keep, so this part
+  uses Flarum instead (step 26 says why).
+- **Authentik's address is not behind Cloudflare's proxy.** It sees each visitor's own address, and the sites talk
+  to it directly.
+
+### The human playbook
+
+You need this chapter's website live on the control host (tier 2), deployed from its private repository, and three
+new names in your DNS (chapter 2): `auth.`, `forum.` and `wiki.` your domain.
+
+#### 26. GENERIC. Know the pieces
+
+```
+            ┌──────────── Authentik (auth.example.org) ─────────────┐
+            │ accounts, passwords, second steps, invitations        │
+            │ blueprints from git: three applications, the flows    │
+            └──────▲───────────────────▲───────────────────▲─────────┘
+       OpenID Connect           OpenID Connect           OpenID Connect
+            │                         │                        │
+   www.example.org           forum.example.org         wiki.example.org
+   nginx + auth.js            Flarum + sso.php         MediaWiki + sso.php
+   serves /embed/header ──────────►  shared header  ◄──────────┘
+            └────── the marker cookie "sso" on .example.org ──────┘
+```
+
+A person signs in once, at Authentik. Each site then has its own session, and the marker keeps them in step: sign in
+on one, and the next page you open on another signs you in without a question; sign out on one, and the others sign
+you out at your next page.
+
+Why these three:
+
+- **Authentik** keeps its whole configuration in blueprints, does invitations, passkeys and second steps out of the
+  box, and runs as three containers. It is the heaviest piece here: give the control host 4 GB of memory free for
+  it (a cx33 had plenty, with everything in this part running).
+- **Flarum, not Discourse,** for the forum. Discourse is the better-known forum and has good OpenID Connect
+  support, but it wants 2 GB of memory of its own, Redis and Sidekiq, and its own installer that doesn't fit
+  Coolify. Flarum is PHP and a MariaDB, about 100 MB, and builds from a short `Dockerfile` like the website's. Its
+  OpenID Connect extension does the code exchange properly (with PKCE and the token's signature checked); what it
+  lacks (quiet sign-in, ending the Authentik session, closing its own password form) is in one file of ours,
+  [`sso.php`](../templates/identity/forum/sso.php).
+- **MediaWiki, not Wiki.js,** for the wiki. MediaWiki is what Neverwinter players already know from the big
+  community wikis, its 1.43 release is supported until 2027, and its PluggableAuth and OpenIDConnect extensions are
+  maintained with it. Our file [`sso.php`](../templates/identity/wiki/sso.php) adds the same three things as the
+  forum's.
+
+#### 27. GENERIC. An identity repository
+
+One more private repository on GitHub, beside your website's, with three folders. Coolify builds each folder as its
+own application.
+
+```sh
+mkdir ~/identity && cd ~/identity && git init -q -b main
+mkdir auth forum wiki
+cp -r ~/nwn-server-playbook/templates/identity/authentik/* auth/
+cp ~/nwn-server-playbook/templates/identity/forum/* forum/
+cp ~/nwn-server-playbook/templates/identity/wiki/* wiki/
+git add -A && git commit -qm "Sign-in, forum and wiki"
+gh repo create identity --private --source . --push
+```
+
+Then give Coolify a deploy key for it, as you did for the website in tier 2 (step 9).
+
+Make the secrets now, and keep them in your password manager: you'll paste each into Coolify once.
+
+```sh
+for s in PG_PASS AUTHENTIK_SECRET_KEY BOOTSTRAP_PASSWORD WEBSITE_CLIENT_SECRET FORUM_CLIENT_SECRET \
+         WIKI_CLIENT_SECRET SESSION_SECRET FORUM_DB_PASSWORD WIKI_DB_PASSWORD WIKI_SECRET_KEY; do
+  echo "$s=$(openssl rand -hex 32)"; done
+```
+
+`AUTHENTIK_SECRET_KEY` is the one to guard most: Authentik signs everything with it, and a backup of its database is
+no use without it.
+
+#### 28. ADAPT. The blueprints
+
+Change: the world's name and colours in `00-brand.yaml`; nothing else unless you want to.
+
+Four files in `auth/blueprints/`, applied in name order:
+
+- [`00-brand.yaml`](../templates/identity/authentik/blueprints/00-brand.yaml): your world's name, colours and the
+  heading on the sign-in page.
+- [`10-sites.yaml`](../templates/identity/authentik/blueprints/10-sites.yaml): the groups `team` and `members`; one
+  provider and one application for each site; the sign-out flow they share; and an `email` scope that vouches for
+  the address (accounts come only by invitation, to that address).
+- [`20-join.yaml`](../templates/identity/authentik/blueprints/20-join.yaml): the `join` flow. It only opens with an
+  invitation, asks for an account name, a display name and a password, and signs the new member in.
+- [`30-team-mfa.yaml`](../templates/identity/authentik/blueprints/30-team-mfa.yaml): members of `team` must also
+  give a code from an authenticator app or use a security key, and set one up at their first sign-in.
+
+The addresses and secrets come from Authentik's environment (`!Env SITE_URL`, `!Env FORUM_CLIENT_SECRET`), so the
+files hold no secret and fit any domain.
+
+One thing in `10-sites.yaml` looks like it could go, and must stay: `grant_types: [authorization_code,
+refresh_token]` on each provider. **An OAuth2 provider made through Authentik's API, or any way that leaves the
+grant types out, gets an empty list, and then refuses every sign-in** with `invalid_request` before anyone sees a
+password box. The admin pages fill the list in for you, which is why this is easy to miss. If you ever make a
+provider any other way, [`check-sign-in.sh`](../templates/identity/authentik/check-sign-in.sh) (step 29) finds it.
+
+A word on choices. The blueprints give everyone a password and your team a second step on top. Authentik can also do
+**passkeys** (a fingerprint or a phone instead of a password) and a second step for everyone. I'd start as here: a
+password is what every player understands, and the people whose accounts can change your world are the ones that
+need guarding. Members can add an authenticator app or a security key for themselves from Authentik's own page
+(`https://auth.example.org/if/user/`) whenever they like.
+
+#### 29. GENERIC. Authentik on the control host
+
+In Coolify: **+ New**, **Private Repository (with deploy key)**, your identity repository, branch `main`, **Build
+Pack** `Docker Compose`, **Base Directory** `/auth`, **Docker Compose Location** `/compose.yaml`. Coolify reads the
+compose file and asks for its variables. Fill in, under **Environment Variables**:
+
+| Variable | Value |
+|---|---|
+| `PG_PASS`, `AUTHENTIK_SECRET_KEY`, the three `*_CLIENT_SECRET` | from step 27 |
+| `BOOTSTRAP_PASSWORD` | from step 27; the first password of Authentik's admin account `akadmin` |
+| `BOOTSTRAP_EMAIL` | your own address |
+| `SITE_URL`, `FORUM_URL`, `WIKI_URL` | `https://www.example.org`, `https://forum.example.org`, `https://wiki.example.org` |
+| `AUTH_HOST` | `auth.example.org` |
+| `MAIL_HOST`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM` | your mail service, for invitations and password resets; empty to start |
+
+Give the **server** service the domain `https://auth.example.org` (Coolify finds Authentik's port, 9000, by itself),
+make the DNS record with chapter 2's script, **not proxied**, and press **Deploy**.
+
+```sh
+templates/dns/cf-record.sh create auth.example.org CONTROL_HOST_ADDRESS
+```
+
+The first start takes three or four minutes while Authentik makes its tables and applies the blueprints. Don't skip
+`BOOTSTRAP_PASSWORD`: without it, Authentik's first-run page that sets the admin password stays open to whoever finds
+it first. Then:
+
+1. Sign in at `https://auth.example.org/` as `akadmin` with the bootstrap password, and change it (top right, the
+   person icon, **Settings**).
+2. **Directory**, **Users**, **Create**: an account for yourself, and add it to the groups `team` and `authentik
+   Admins`. Sign out, and sign in as yourself: you'll be asked to set up an authenticator app. From now on use your
+   own account, and keep `akadmin` for emergencies.
+3. Check that each site can start a sign-in:
+
+```sh
+templates/identity/authentik/check-sign-in.sh https://auth.example.org \
+  website https://www.example.org/auth/callback \
+  forum 'https://forum.example.org/auth/oidc?provider=authentik' \
+  wiki https://wiki.example.org/index.php/Special:PluggableAuthLogin
+```
+
+```
+website: ok
+forum: ok
+wiki: ok
+```
+
+#### 30. GENERIC. Members: by invitation
+
+In Authentik's admin pages: **Directory**, **Invitations**, **Create**. Name it after the person, flow `join`,
+**Single use** on, and in **Custom attributes** fix their address:
+
+```yaml
+email: rowan@example.org
+```
+
+Copy the link it makes (`https://auth.example.org/if/flow/join/?itoken=...`) and send it to them. They pick an
+account name, a display name and a password, and are signed in, in the group `members`. A used invitation says
+"Access denied" if anyone tries it again.
+
+With mail set up (step 29's `MAIL_*`), Authentik can email the link itself, and people who forget their password can
+reset it from the sign-in page. Without mail, a member of your team sets a new password for them in **Directory**,
+**Users**.
+
+#### 31. ADAPT. The website's sign-in
+
+Change: the auth address in `account.html`; the names and links in `embed/header.html`; the colours in
+`embed/shell.css` if yours differ.
+
+```sh
+cd ~/mysite
+git switch -c sign-in
+cp -r ~/nwn-server-playbook/templates/site/sso/* .
+```
+
+That replaces `Dockerfile` and `nginx.conf` (the status page and character pages stay as they were) and adds:
+
+- [`auth.js`](../templates/site/sso/auth.js), run by nginx on the server: the sign-in with Authentik (code flow with
+  PKCE, the ID token's issuer, audience, nonce and age checked), a small signed session cookie, and the marker. No
+  database, no session store.
+- [`account.html`](../templates/site/sso/account.html): a page that says who you are, at `/account`.
+- [`embed/header.html`](../templates/site/sso/embed/header.html), [`embed/shell.css`](../templates/site/sso/embed/shell.css)
+  and [`embed/user.js`](../templates/site/sso/embed/user.js): the shared header, and the "Sign in" or "your name ·
+  Sign out" in it.
+
+Put the header on each of your pages: three lines, in the `<head>`, at the top of `<body>`, and before `</body>`.
+
+```html
+<link rel="stylesheet" href="/embed/shell.css">
+<!--# include virtual="/embed/header.html" -->
+<script src="/embed/user.js"></script>
+```
+
+nginx puts the header in as it serves the page, so a change to `header.html` changes every page on every site.
+
+Then in Coolify, the website's **Environment Variables**:
+
+| Variable | Value |
+|---|---|
+| `AUTH_ISSUER` | `https://auth.example.org/application/o/website/` |
+| `AUTH_CLIENT_ID` | `website` |
+| `AUTH_CLIENT_SECRET` | `WEBSITE_CLIENT_SECRET` from step 27 |
+| `SITE_URL` | `https://www.example.org` |
+| `SESSION_SECRET` | from step 27; changing it signs everyone out of the website |
+| `SSO_COOKIE_DOMAIN` | `.example.org`, with the dot: the marker is for all your sites |
+
+Push, open the pull request, merge. After the deploy, **Sign in** at the top right of your site takes you to
+Authentik and back.
+
+#### 32. GENERIC. The forum
+
+In Coolify, another application from your identity repository: **Base Directory** `/forum`, **Docker Compose
+Location** `/compose.yaml`, the **forum** service's domain `https://forum.example.org`, and these variables:
+
+| Variable | Value |
+|---|---|
+| `FORUM_URL` | `https://forum.example.org` |
+| `FORUM_TITLE` | your forum's name |
+| `ADMIN_EMAIL` | the address of your own Authentik account |
+| `DB_PASSWORD` | `FORUM_DB_PASSWORD` from step 27 |
+| `AUTH_ISSUER` | `https://auth.example.org/application/o/forum/` |
+| `FORUM_CLIENT_SECRET` | from step 27 |
+| `SITE_URL`, `SSO_COOKIE_DOMAIN` | as for the website |
+
+Make the DNS record (proxied, like the website's) and deploy. The first start installs Flarum into its empty
+database (a few minutes: the build fetches Flarum and its extension).
+
+Then sign in on the forum with your own account. Because Authentik vouches for your address and it is
+`ADMIN_EMAIL`, you land in the forum's administrator account. Everyone else gets a forum account at their first
+visit: the forum shows them a sign-up box with their name and address already filled in, and one button. The
+forum's own password sign-in and sign-up are closed; Authentik is the only way in.
+
+Your team are administrators on the forum only if you make them so, in the forum's admin pages. That's on purpose:
+being on the team in Authentik isn't the same as moderating the forum.
+
+#### 33. GENERIC. The wiki
+
+The same again: **Base Directory** `/wiki`, the **wiki** service's domain `https://wiki.example.org`, and:
+
+| Variable | Value |
+|---|---|
+| `WIKI_URL` | `https://wiki.example.org` |
+| `WIKI_NAME` | your wiki's name |
+| `WIKI_SECRET_KEY` | from step 27 |
+| `DB_PASSWORD` | `WIKI_DB_PASSWORD` from step 27 |
+| `AUTH_ISSUER` | `https://auth.example.org/application/o/wiki/` |
+| `WIKI_CLIENT_SECRET` | from step 27 |
+| `SITE_URL`, `SSO_COOKIE_DOMAIN` | as for the website |
+
+DNS record (proxied), deploy. Everyone may read; members edit; nobody makes an account on the wiki itself. Members of
+`team` in Authentik become the wiki's administrators (`sysop` and `bureaucrat`) at every sign-in, so taking someone
+off the team in Authentik takes the wiki's tools away at their next sign-in.
+
+#### 34. GENERIC. Check it, as a visitor would
+
+In a private browser window:
+
+1. Open your website and **Sign in** with a member's account. You're back on the website with your name at the top.
+2. Open the forum. Without a question, your name is at the top (the first time, after the forum's one-button
+   sign-up).
+3. Open the wiki. Your name again.
+4. **Sign out** on any of the three. You land on the website's front page, signed out. Open the forum and the wiki:
+   both say **Sign in**.
+
+Then once with your own account, which is on the team: Authentik asks for your authenticator code, and the wiki shows
+you its admin tools.
+
+#### 35. GENERIC. Changing sign-in, from now on
+
+Every change to Authentik is a pull request to `auth/blueprints/`. Coolify builds the image with the new files and
+starts it, and Authentik applies them as it starts: in our test, a changed heading on the sign-in page showed 20
+seconds after the deploy finished. Authentik also applies them again about once an hour, so whatever you change by
+hand in its admin pages for something a blueprint describes goes back to what the blueprint says. Accounts,
+invitations and passwords aren't in the blueprints, and are yours to change in the admin pages.
+
+To see that every blueprint applied: **Customization**, **Blueprints**, each of the four `custom/...` with status
+**successful**. An error there names the line.
+
+Upgrading Authentik is a pull request too: change the version in `auth/Dockerfile` after reading its release notes,
+and take a backup first (step 36).
+
+#### 36. GENERIC. Back up the three databases, and restore Authentik
+
+Chapter 12's backups on the control host (its tier 2) run every script in `/etc/nwn-borg/hooks.d/` before each
+night's backup. Add one that dumps every database labelled for it in this part's compose files:
+
+```sh
+sudo install -m 700 ~/nwn-server-playbook/templates/backup/hooks/20-site-dbs.sh /etc/nwn-borg/hooks.d/
+sudo /etc/nwn-borg/hooks.d/20-site-dbs.sh && sudo ls /var/backups/nwn-borg/
+```
+
+```
+coolify-db.dmp  site-authentik.sql  site-forum.sql  site-wiki.sql
+```
+
+The secrets that go with them (`AUTHENTIK_SECRET_KEY` above all) are in Coolify's environment variables, which
+chapter 12's Coolify database dump already keeps, and in your password manager.
+
+To put Authentik back from a dump, on the control host, with
+[`restore.sh`](../templates/identity/authentik/restore.sh):
+
+```sh
+sudo cp /var/backups/nwn-borg/site-authentik.sql /tmp/ && sudo chown $USER /tmp/site-authentik.sql
+./restore.sh /tmp/site-authentik.sql && rm /tmp/site-authentik.sql
+```
+
+```
+stopping Authentik's server and worker
+replacing the database
+starting Authentik again
+Authentik is back
+```
+
+It took 26 seconds in our test. Everyone is as they were at the dump: accounts, groups, second steps, invitations.
+On a new control host, deploy Authentik first (it starts empty, with only the blueprints), then restore over it.
+The forum's and the wiki's dumps load into their MariaDB the same way as the game's database (chapter 12, step 19).
+
+#### 37. ADAPT. Linking a web account to the game
+
+Once people have accounts, the next wish is "these are my characters". The honest way, and the way Layonara does
+it: the website shows a signed-in member a one-use code; they type `/link CODE` in the game; the module tells the
+operations API which player typed it; the website asks the API and remembers that this account owns that game
+login. Proving it in the game is what makes it safe: a website alone can't know who holds a CD key.
+
+The pieces are an endpoint pair on the operations API (make a code for an account, confirm a code from the game), a
+chat command in the module, and a page on the website. The account to remember is the `sub` in Authentik's ID token:
+`10-sites.yaml` gives every site the same `sub` for the same person, so the forum and the wiki can use the link too.
+The template operations API of chapter 9 has no link endpoints yet, so this step has no files to copy, and isn't
+tested here.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/11-website-tier3-sso.md`](../playbooks/11-website-tier3-sso.md) has these
+steps in a fixed shape it can follow. A person makes every account, invitation and Coolify application; the agent
+writes files, opens pull requests and checks.
+
+### Lessons
+
+- **A provider made through the API refuses every sign-in.** Authentik's API (and its model) give an OAuth2
+  provider an empty list of grant types unless you say otherwise, and the authorize step then answers
+  `invalid_request` before showing anything. The admin pages fill it in, so the provider looks the same as a working
+  one. Say `grant_types` in the blueprint, and let `check-sign-in.sh` look.
+- **Authentik sends people back after sign-out only with the site's ID token.** Its end-session page follows a
+  site's `post_logout_redirect_uri` only when the site also sends the ID token it got at sign-in, and the forum's
+  extension doesn't keep it. So the three sites share one sign-out flow in the blueprint that ends on the website's
+  front page, and every **Sign out** lands in the same place.
+- **The marker grants nothing, so it can be simple.** It's a cookie anyone could set. All it does is make a site try
+  a quiet sign-in (which Authentik answers only for someone really signed in there) or sign a visitor out. A forged
+  marker can do neither more nor less than visiting the sign-in page.
+- **Set the bootstrap password before the first start.** Without it, Authentik's first-run page waits for the first
+  visitor to choose the admin password. Our first test instance had that page open until we noticed it.
+- **Blueprints can run before Authentik's own.** On a brand-new install, ours ran before Authentik had made its
+  default sign-in flow, and the changed heading was overwritten. Each of our blueprints now names the built-in ones
+  it builds on first (`metaapplyblueprint`); a second fresh install got the heading right on its own.
+- **Cloudflare turns away requests with no user agent.** The forum's and wiki's fetch of the shared header got
+  `403` until they sent one.
+- **Flarum's sign-out and MediaWiki's are a form, not a link.** Both sign out only on a POST that carries the
+  session's token, so "Sign out" in the header is a small form; a plain link shows a "Do you want to log out?" page.
+- **MediaWiki's sign-in must start at Special:UserLogin.** Opening PluggableAuth's own page directly gives an
+  error and a second trip; the quiet try carries a two-minute cookie through MediaWiki's pages instead of a
+  parameter that gets lost.
+- **Flarum needs more than PHP's default memory.** Its style compiler stopped the container at start with
+  "Allowed memory size of 134217728 bytes exhausted"; the image sets 512 MB.
+- **`pg_dump` from Postgres 17 ends with a new line.** It adds `\unrestrict ...` after "dump complete", so a check
+  of the very last lines missed it.
+
+### Tested
+
+On 2026-11-26, on one throwaway Hetzner cx33 control host (Ubuntu 26.04) with Coolify 4.7.5 managing itself, and
+four temporary names in our own domain through Cloudflare (Authentik's not proxied, the three sites proxied). Each
+application was built by Coolify from a throwaway private GitHub repository with a deploy key; deploys were started
+through Coolify's API, as a merge's webhook would. Versions: Authentik 2026.8.7 with Postgres 17; Flarum 2.0.2 with
+floxum/flarum-ext-oidc 2.1, PHP 8.4, MariaDB 11.8; MediaWiki 1.43 (PHP 8.3) with PluggableAuth and OpenIDConnect 8.3.0
+at the commits in the `Dockerfile`, MariaDB 11.8; nginx 1.29. The browser was headless Chromium 131, driven by
+Playwright.
+
+- the four blueprints applied, status **successful**; `check-sign-in.sh` `ok` for all three sites;
+- **one sign-in**: a member signed in on the website, then opened the forum (first visit: the one-button sign-up,
+  then signed in) and the wiki, signed in on both without a question, and the shared header with their name on all
+  three, at desktop and phone widths;
+- **sign-out everywhere**, three times, starting on the website, the forum and the wiki: each landed on the
+  website's front page, and all three showed **Sign in** after;
+- **the team**: a team member's sign-in asked for a second step, the authenticator app was set up with a code made
+  from its secret, and the forum put them in its administrator account (by `ADMIN_EMAIL`) and the wiki made them
+  `sysop` and `bureaucrat`;
+- **joining**: an invitation with a fixed address, the join page in the browser, the new member signed in in
+  `members` with that address, and on the website without a password; the invitation refused a second time;
+- **the trap**: a provider made through the API had `grant_types: []`, and `check-sign-in.sh` said
+  `refused: invalid_request` for it and `ok` for the website (exit 1);
+- **a blueprint change from git**: the sign-in heading changed in a pull request, live 20 seconds after the deploy;
+- **the bootstrap password**: the first-run page answered "Access denied" on two fresh installs;
+- **backup and restore**: `20-site-dbs.sh` made the three dumps; Authentik's database volume was deleted and
+  Authentik deployed fresh (blueprints only, sign-in heading right, the three sites `ok`); `restore.sh` put the dump
+  back in 26 seconds, with the three accounts and the team member's authenticator, and the sign-in and sign-out
+  test above passed again.
+
+Not tested: mail (invitations by mail, password resets), because the test had no mail service; passkeys and security
+keys (the browser had none); the hourly re-apply that undoes a hand change; the nightly run through
+`nwn-borg-backup` itself (the hook was run by hand); a forum or wiki restore; linking a game account (step 37); the
+agent playbook end to end as written (its commands were run one by one during the test).

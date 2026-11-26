@@ -1,0 +1,72 @@
+# Joining by invitation (chapter 11, tier 3). Nobody can make an account on their own: a person on your team makes
+# an invitation for one email address, and the link in it opens this flow once. The new account lands in the
+# "members" group and is signed in at the end.
+version: 1
+metadata:
+  name: Sites - join by invitation
+entries:
+  - model: authentik_core.group
+    id: group-members
+    identifiers: {name: members}
+
+  - model: authentik_flows.flow
+    id: flow
+    identifiers: {slug: join}
+    attrs:
+      name: Join
+      title: Join us
+      designation: enrollment
+      authentication: require_unauthenticated
+      layout: stacked
+
+  - model: authentik_stages_invitation.invitationstage
+    id: invitation
+    identifiers: {name: join-invitation}
+    attrs:
+      continue_flow_without_invitation: false
+
+  - model: authentik_stages_prompt.prompt
+    id: field-username
+    identifiers: {name: join-username}
+    attrs: {field_key: username, label: Account name, type: username, required: true, placeholder: Account name, order: 0}
+  - model: authentik_stages_prompt.prompt
+    id: field-name
+    identifiers: {name: join-name}
+    attrs: {field_key: name, label: Name shown to others, type: text, required: true, placeholder: Name, order: 1}
+  - model: authentik_stages_prompt.prompt
+    id: field-password
+    identifiers: {name: join-password}
+    attrs: {field_key: password, label: Password, type: password, required: true, placeholder: Password, order: 2}
+  - model: authentik_stages_prompt.prompt
+    id: field-password-repeat
+    identifiers: {name: join-password-repeat}
+    attrs: {field_key: password_repeat, label: Password again, type: password, required: true, placeholder: Password again, order: 3}
+
+  - model: authentik_stages_prompt.promptstage
+    id: prompt
+    identifiers: {name: join-prompt}
+    attrs:
+      fields: [!KeyOf field-username, !KeyOf field-name, !KeyOf field-password, !KeyOf field-password-repeat]
+
+  # The email comes from the invitation (its fixed_data), never from the person.
+  - model: authentik_stages_user_write.userwritestage
+    id: write
+    identifiers: {name: join-write}
+    attrs:
+      user_creation_mode: always_create
+      user_type: external
+      user_path_template: users/members
+      create_users_group: !KeyOf group-members
+
+  - model: authentik_stages_user_login.userloginstage
+    id: login
+    identifiers: {name: join-login}
+
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow, stage: !KeyOf invitation, order: 0}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow, stage: !KeyOf prompt, order: 10}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow, stage: !KeyOf write, order: 20}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow, stage: !KeyOf login, order: 30}
