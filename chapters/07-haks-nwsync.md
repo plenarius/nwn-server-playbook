@@ -140,11 +140,13 @@ Back in the content repository:
 ```sh
 cd ~/myhaks
 mkdir -p build/nwsync
-nwn_nwsync_write --description="My server's content" --path build/hak --path build/tlk build/nwsync ~/mymodule/mymodule.mod
+nwn_nwsync_write --write-origins --description="My server's content" --path build/hak --path build/tlk build/nwsync ~/mymodule/mymodule.mod
 ```
 
 This reads the module, finds the haks and the talk table it lists, and writes them into `build/nwsync` in the form
-players' games download. The folder must exist first, which is what the `mkdir` is for.
+players' games download. The folder must exist first, which is what the `mkdir` is for. `--write-origins` adds a
+small list of which hak each file came from, which players' games ignore; chapter 6's tests use it to rebuild your
+haks from a download.
 
 Inside, a file called `latest` holds one long name: the identity of the content you just wrote.
 

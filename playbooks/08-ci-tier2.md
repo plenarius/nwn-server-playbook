@@ -35,7 +35,7 @@ Success: `3`, `success`, `staging`.
 ```sh
 grep -c 'timeout-minutes' .github/workflows/tests.yml .github/workflows/release.yml
 grep -c 'cancel-in-progress: true' .github/workflows/tests.yml
-grep -B1 'run.sh' .github/workflows/tests.yml | grep -c 'pipefail'
+grep -B2 'tests/run.sh --filter' .github/workflows/tests.yml | grep -c 'pipefail'
 ```
 
 Success: `tests.yml:1`, `release.yml:2`, then `1`, then `1`. A `0` for `pipefail` means a failed test can pass the
@@ -45,12 +45,16 @@ run: stop and ask.
 
 ```sh
 grep -c 'actions/cache' .github/workflows/*.yml .github/actions/nwn-tools/action.yml
-RUN=$(gh run list -R $GH_REPO -w Tests -b main -L 1 --json databaseId -q '.[0].databaseId'); gh run view $RUN -R $GH_REPO --json jobs -q '.jobs[0].steps[] | "\(.name) \(.startedAt) \(.completedAt)"'
+grep -o 'key: nwsync-.*' .github/workflows/tests.yml | sort -u; grep '^  NWSYNC_URL:' .github/workflows/tests.yml
+RUN=$(gh run list -R $GH_REPO -w Tests -b main -L 1 --json databaseId -q '.[0].databaseId'); gh run view $RUN -R $GH_REPO --json jobs -q '.jobs[0].steps[] | "\(.name) \(.conclusion) \(.startedAt) \(.completedAt)"'
 ```
 
-Success: `0` for every file; the step times, with the tool step and `Run the tests` taking nearly all of the job
-(on the test, 27 s and 23 s of 52). If a person asks for a
-cache, measure both ways first (the chapter's step 3) and report the numbers; do not add one that is not faster.
+Success: `tests.yml:2` and `0` for every other file (the two are the content cache's restore and save); one key,
+`key: nwsync-${{ steps.content.outputs.version }}`; the `NWSYNC_URL:` line (empty when the module uses no haks, and
+then the content steps show `skipped`); the step times, with the tool step and `Run the tests` taking nearly all of
+the job (on the test, 27 s and 23 s of 52). A content step that failed: report its last line and stop and ask. If a
+person asks for another cache, measure both ways first (the chapter's step 3) and report the numbers; do not add one
+that is not faster.
 
 ### 3. The environment's rules
 

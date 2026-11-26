@@ -2,5 +2,6 @@
 .nasher/
 *.mod
 *.ncs
-# What tests/run.sh makes.
+# What tests/run.sh makes, and the content it downloads.
 tests/.run/
+tests/.content/

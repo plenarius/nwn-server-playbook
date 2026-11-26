@@ -22,9 +22,11 @@ fi
 in_image /src/build.sh 2>&1 | grep -v 'erf header'
 
 # 2. Write the new version beside the others. "latest" is not touched, so a game that starts now, even by
-# accident, still hands out the version that matches its haks. The tool's log is shown only if writing fails.
+# accident, still hands out the version that matches its haks. --write-origins adds a list of the hak each file
+# came from, so the module's tests can rebuild the haks from a download (chapter 6, tier 2). The tool's log is
+# shown only if writing fails.
 log=$(mktemp)
-json=$(in_image nwn_nwsync_write --no-latest --description="$(basename "$module" .mod)" \
+json=$(in_image nwn_nwsync_write --no-latest --write-origins --description="$(basename "$module" .mod)" \
   --path /src/build/hak --path /src/build/tlk /nwsync /module.mod 2> "$log") ||
   { cat "$log" >&2; rm -f "$log"; exit 1; }
 rm -f "$log"

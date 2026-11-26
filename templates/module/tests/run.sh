@@ -6,22 +6,24 @@
 #   tests/run.sh --filter t_db_     only the tests whose names start with t_db_
 #   tests/run.sh --no-build         run the test module built last time
 #   tests/run.sh --timeout 300      give up after this many seconds (default 600)
+#   tests/run.sh --content URL      with the haks and talk table from your download address (tools/fetch_content.sh)
 #
 # Needs Docker with Compose, nasher, and NWN_ROOT as for building (chapter 6). The server image is NWNX_IMAGE,
 # or else the one named in .github/workflows/compile-check.yml, so the tests and the check use the same.
-# Haks and a talk table, if your module uses them: TEST_HAK_DIR and TEST_TLK_DIR (folders; read-only).
+# Haks and a talk table, if your module uses them: --content, or TEST_HAK_DIR and TEST_TLK_DIR (folders).
 # Results go to tests/.run/: logs/ (the server's and the engine's logs, and its console) and junit.xml (for CI).
 set -euo pipefail
 TESTS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(dirname "$TESTS")
 OUT=$TESTS/.run
 
-FILTER=t_ BUILD=1 TIMEOUT=600
+FILTER=t_ BUILD=1 TIMEOUT=600 CONTENT=
 while [ $# -gt 0 ]; do
   case $1 in
     --filter) FILTER=$2; shift ;;
     --no-build) BUILD=0 ;;
     --timeout) TIMEOUT=$2; shift ;;
+    --content) CONTENT=$2; shift ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -44,6 +46,17 @@ if [ $BUILD = 1 ]; then
   mv -f "$ROOT/test.mod" "$OUT/modules/test.mod"
 fi
 [ -f "$OUT/modules/test.mod" ] || { echo "no test module built yet: run without --no-build" >&2; exit 1; }
+
+# The haks and talk table the module lists. Without them the server stops with "Unable to load module" and no
+# reason, so check first. Compose reads relative folders from tests/, so make them whole paths.
+if [ -n "$CONTENT" ]; then
+  "$TESTS/tools/fetch_content.sh" "$CONTENT" "$TESTS/.content"
+  TEST_HAK_DIR=$TESTS/.content/hak TEST_TLK_DIR=$TESTS/.content/tlk
+fi
+TEST_HAK_DIR=$(realpath "${TEST_HAK_DIR:-$OUT/hak}") TEST_TLK_DIR=$(realpath "${TEST_TLK_DIR:-$OUT/tlk}")
+export TEST_HAK_DIR TEST_TLK_DIR
+python3 "$TESTS/tools/check_content.py" "$OUT/modules/test.mod" "$TEST_HAK_DIR" "$TEST_TLK_DIR" ||
+  { echo "the test server would not load this module" >&2; exit 1; }
 
 save_logs() {
   rm -rf "$OUT/logs"; mkdir -p "$OUT/logs"

@@ -327,7 +327,8 @@ When you're done, you'll have:
 
 - a folder of small test scripts, and one command that runs them all on a headless NWNX server with a database of
   its own, then says plainly what passed and what didn't;
-- the same tests on GitHub's machines on every pull request, with the logs kept for each run;
+- the same tests on GitHub's machines on every pull request, with the logs kept for each run, and with your haks
+  and talk table downloaded from your own download address, as a player's game would;
 - a second, private copy of your game on the game host, the **staging** copy, on its own port and with its own
   database;
 - a release workflow: push a tag such as `v1.4.0`, and it tests, builds, makes a GitHub release with the module
@@ -356,6 +357,9 @@ what the machines are, what is cached and how the staging secret is kept.
   Discord or reach the live game.
 - **Strict about what counts as a pass.** A test fails for a failed assert, for running too long, for a script
   error, or for leaving things behind in the world (a creature it made, an item it dropped).
+- **The tests get the real haks.** Our tests run on our own machines, beside a copy of the haks our build
+  publishes, and each run takes a snapshot of that copy, so a build finishing half-way through a run can't change
+  the haks under a test. Here I suggest the simpler way for GitHub's machines: download them from your own address.
 - **What runs when.** Pull requests run the tests their change can reach; every night runs all of them. Those are
   tier 3 ideas, and so are the parallel test lanes that run them; this tier runs everything, every time, which is
   right while your suite is small.
@@ -385,7 +389,7 @@ cp -r templates/module/tests ~/mymodule/
 mkdir -p ~/mymodule/.github/actions
 cp -r templates/module/.github/actions/nwn-tools ~/mymodule/.github/actions/
 cp templates/module/.github/workflows/tests.yml templates/module/.github/workflows/release.yml ~/mymodule/.github/workflows/
-echo 'tests/.run/' >> ~/mymodule/.gitignore
+printf 'tests/.run/\ntests/.content/\n' >> ~/mymodule/.gitignore
 ```
 
 and add a second build target to the end of `~/mymodule/nasher.cfg`, as in the template's:
@@ -517,17 +521,84 @@ Take both out again: `rm tests/nss/t_math_*.nss`.
 
 #### 16. ADAPT. Give the test server what your live server has
 
-Change: the plugins, and the haks and talk table if you have them.
+Change: the plugins; and your download address, if your module uses haks.
 
 The test server should be your live server's twin, minus anything that talks to the outside world. Open
 `tests/compose.yaml`: under `nwserver`, `environment` switches on Util (the runner needs it) and SQL. Add every
 `NWNX_..._SKIP=n` line your live `.env` has, except plugins that send things out (webhooks, metrics), which have
 nowhere to go on a network with no route out anyway.
 
-If your module uses haks and a talk table (chapter 7), point the test server at them:
+**Haks and the talk table.** If your module lists haks (chapter 7), the test server needs them as much as the live
+one does. Without them it stops at once with `Unable to load module`, and says nothing about why. So `run.sh`
+checks first and names what's missing:
+
+```
+the module needs my_first_hak.hak, and the test server has no .../tests/.run/hak/my_first_hak.hak
+the module needs my_tlk.tlk, and the test server has no .../tests/.run/tlk/my_tlk.tlk
+give it your content with --content (chapter 6, step 16); if this change needs new content, stage it first
+the test server would not load this module
+```
+
+The simplest honest place to get them is the one your players use: your download address. A player's game
+downloads the content your game hands out, file by file, and the tests can do exactly the same:
 
 ```sh
-TEST_HAK_DIR=~/mycontent/build/hak TEST_TLK_DIR=~/mycontent/build/tlk tests/run.sh
+tests/run.sh --content https://nwsync.example.org
+```
+
+```
+content b8311026bbed059ac36f81b2f6fb8bb861ab93f5: 3 files checked, 2 haks, 1 talk tables
+server ran for 14 s
+PASS  t_content_hak
+...
+```
+
+[`tests/tools/fetch_content.sh`](../templates/module/tests/tools/fetch_content.sh) downloads every file over HTTPS,
+checks each one against its checksum, and packs them back into the haks they came from, in `tests/.content`. The
+address is public, so there's no secret to keep. Three things to know:
+
+- **Which version.** If chapter 7's tier 2 has staged new content (it puts it under `/staging` on your address for
+  the staging copy, step 18), the tests use that, because it is what your next release will carry. Otherwise they
+  use what players get now. Either way the first line says which.
+- **It needs a list of which hak each file came from.** A download by itself only knows files. Chapter 7 writes
+  that list (`--write-origins`, a small file beside each version) from this section on. If your content was written
+  before, publish it once more: the same content gives the same version, so players download nothing new.
+- **Script sources aren't there.** The download leaves out `.nss` files, which players never need. The server
+  doesn't either: it runs the compiled ones.
+
+A test that proves the content is really loaded is worth its few lines. Mine reads a line from the example hak's
+table and one from the talk table:
+
+```c
+// t_content_hak: the haks and the talk table the live game hands out are loaded.
+#include "inc_test"
+
+void main()
+{
+    AssertStr(Get2DAString("ex_notes", "Note", 0), "Packed from a folder in git", "a table from my_first_hak");
+    AssertStr(GetStringByStrRef(16777216), "This line comes from my own talk table.", "a line from my_tlk");
+}
+```
+
+On GitHub, set your address once, in `tests.yml`:
+
+```yaml
+  NWSYNC_URL: "https://nwsync.example.org"
+```
+
+Each run then asks your address which version to use, and downloads it only if GitHub's cache doesn't already
+have it (chapter 8, step 3). A version's name is the checksum of its list of files, so a cached one can't be stale.
+
+**A change that needs new content.** Say a pull request adds a hak to the module's list. Its tests fail with
+`the module needs my_second_hak.hak`, and that's right: nothing has that hak yet. Stage the content first, with
+chapter 7's `publish.sh` (its step 21), then press **Re-run jobs** on the pull request. The run now takes the
+staged version, and passes. On the test it did exactly that. Testing a content repository's own pull requests,
+before anything is published, is beyond this tier.
+
+If you build your content at home and want to test with that instead of what's published, point at the folders:
+
+```sh
+TEST_HAK_DIR=~/myhaks/build/hak TEST_TLK_DIR=~/myhaks/build/tlk tests/run.sh
 ```
 
 The image is the one named in your compile check's `NWNX_IMAGE`, so tests and check always agree. When you move to
@@ -626,6 +697,11 @@ plays with yesterday's world, and nothing a tester does there survives the next 
 backups and touches nothing else of it.
 
 From your own computer, `templates/game/nwn-status.py GAME 5122` should now answer with `module mymodule`.
+
+If your module uses haks, staging needs them too, and it gets them the same way as the tests: chapter 7's
+`publish.sh`, in tier 2, gives staging the content it stages, and chapter 16's step 12 has the one setting staging
+needs for that. Until then, a module that lists haks can't start on staging. The tests take that same staged
+version (step 16), so what passes on GitHub is what staging plays.
 
 #### 19. GENERIC. A key that can only stage
 
@@ -754,6 +830,12 @@ before every tag; going live is always yours.
   hung server costs ten minutes, not GitHub's limit of six hours.
 - **Keep staging's name apart from live's.** Two services both called `nwserver` on one machine and the backup
   script, rightly, refuses to guess. Different names cost nothing.
+- **A module with haks can't load without them.** The first version of these tests passed on a module with no
+  haks, and stopped with `Unable to load module` on one that had them, because nothing gave the test server any.
+  The download address already hands out exactly the content the live game uses, checksummed, to anyone; the
+  tests now take it from there, and `run.sh` names a missing hak instead of leaving you to guess.
+- **The download alone doesn't know its haks.** It lists files, not which hak each came from, and a module names
+  haks. The NWSync writer can keep that list (`--write-origins`); chapter 7 now asks it to.
 - **Stage the file you will release.** A rebuild "of the same commit" for going live can differ (another nasher,
   another day). Staging the release's own file, and going live with the file staging ran, means what players get is
   exactly what you tried.
@@ -783,5 +865,27 @@ using the tier 1 demo module with chapter 6's `mod_load` example:
   the live game with staging running;
 - this chapter's agent playbook from step 6 on, as written, against the same repository and servers.
 
-Not tested: a module with haks in the test server (`TEST_HAK_DIR`), a real tester connecting to staging with a game
+The haks and talk table for the tests (step 16, and the note in step 18) were tested on 2026-11-26 with the same
+versions, on a pair of fresh Hetzner cloud servers of the smallest shared type brought to chapter 7's tier 2 state:
+the downloads service in Coolify on the control host under a temporary name in our own domain, with a real
+certificate, the example content published and promoted with `publish.sh` and `promote.sh` (now with
+`--write-origins`), and the game handing it out. The staging copy was a `~/staging` folder that `publish.sh` fed;
+no staging game ran (chapter 16's tier 2 tested that one). A private throwaway repository made from the template,
+with a module that lists the example hak and talk table and the content test above:
+
+- with no address set, a run on GitHub failing before the server started, naming the hak and the talk table;
+- with the address set, a run on `main` downloading the version (2 files, about 2 s), saving it in the cache and
+  passing, and a second run restoring it from the cache and skipping the download;
+- a pull request adding a second hak: failing with `the module needs my_second_hak.hak`, then, after `publish.sh`
+  staged the new content, the same run re-run and passing with the staged version;
+- a release tag running the tests with the staged content and making its release; a tag on a module needing a
+  hak nobody had published failing at the tests, with no release made;
+- the downloads service stopped: the run failing at its first content step with `could not read
+  https://.../staging/latest (HTTP 503): is the download address up?`;
+- at home: `--content` against a local copy, the talk table rebuilt byte for byte and the hak with the same file
+  in it, and a version without its list refused with a message saying what to do.
+
+Not tested: content big enough for the cache's 10 GB limit, and a pull request from a fork.
+
+Not tested, from the first round: a real tester connecting to staging with a game
 client (the status query answered instead).

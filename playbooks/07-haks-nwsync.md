@@ -66,7 +66,7 @@ one-line summary. Commit the change on a branch and open a pull request, as play
 ### 3. Write the download folder
 
 ```sh
-cd "$HAKS_DIR" && mkdir -p build/nwsync && nwn_nwsync_write --description="$MODULE_NAME content" --path build/hak --path build/tlk build/nwsync "$REPO_DIR/$MODULE_NAME.mod" >/dev/null 2>&1; HASH=$(cat build/nwsync/latest); echo $HASH; ls build/nwsync/manifests/$HASH >/dev/null && echo "manifest ok"
+cd "$HAKS_DIR" && mkdir -p build/nwsync && nwn_nwsync_write --write-origins --description="$MODULE_NAME content" --path build/hak --path build/tlk build/nwsync "$REPO_DIR/$MODULE_NAME.mod" >/dev/null 2>&1; HASH=$(cat build/nwsync/latest); echo $HASH; ls build/nwsync/manifests/$HASH >/dev/null && echo "manifest ok"
 ```
 
 Success: 40 letters and digits, then `manifest ok`.

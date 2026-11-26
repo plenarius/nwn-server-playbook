@@ -12,6 +12,8 @@ Copy this folder to make the repository for your own module. Chapter 6 of the gu
 | `tests/nss/` | The test runner (`t_boot`, `t_runner`, `inc_test`) and four example tests, `t_<system>_<case>` |
 | `tests/compose.yaml` | The test server: your NWNX image and an empty database, on a network with no route out |
 | `tests/tools/results.py` | Reads the test server's logs, prints the results, writes `junit.xml` |
+| `tests/tools/fetch_content.sh` | Downloads your haks and talk table from your download address, for the test server |
+| `tests/tools/check_content.py` | Before a run, names any hak or talk table the module lists and the test server lacks |
 | `.github/workflows/tests.yml` | Runs the tests on every pull request, on GitHub's machines |
 | `.github/workflows/release.yml` | On a `v*` tag: tests, builds, makes a GitHub release, puts the module on staging |
 | `.github/actions/nwn-tools/` | The tool install the two workflows share |

@@ -502,6 +502,11 @@ said only `Unable to load module`, and the engine's log said why:
 Couldn't load the Hak Pak File "my_second_hak.hak"
 ```
 
+Since chapter 6's tests download their content from your address (its step 16), the same tag now stops earlier,
+at the tests, with `the module needs my_second_hak.hak`, and no release is made: on the test, a tag on a module
+naming a hak nobody had published stopped there. A staging that won't start is still worth knowing how to read, for
+anything else it lacks.
+
 Two ways forward, depending on what it was:
 
 - **The module is fine, staging lacked something** (content not published, as here): publish it, then run the
