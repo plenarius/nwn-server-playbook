@@ -35,13 +35,25 @@ fi
 new=$(cat "$STAGED_FILE")
 [ -f "$NWSYNC_DIR/manifests/$new" ] || { echo "the staged version $new is missing from $NWSYNC_DIR" >&2; exit 1; }
 old=$(cat "$NWSYNC_DIR/latest" 2>/dev/null || true)
+was_previous=$(cat "$PREVIOUS_FILE" 2>/dev/null || true)
+last_release() { ssh "$GAME_USER@$GAME" "ls -1 $GAME_DIR/releases 2>/dev/null | tail -n 1"; }
+before=$(last_release)
 
 # "latest" first, so the game reads the new version when release.sh restarts it.
 [ -z "$old" ] || [ "$old" = "$new" ] || echo "$old" > "$PREVIOUS_FILE"
 set_latest "$new"
 echo "latest is $new (was $old)"
 if ! release; then
-  echo "the release failed. To go back to $old and the old files: $0 --back" >&2
+  after=$(last_release) || after="(could not ask)"
+  if [ "$after" = "$before" ] && [ -n "$old" ]; then
+    # release.sh refused before it changed a file (a failed backup, a migration that failed its rehearsal or on
+    # the live database): the old haks are still in place, so "latest" goes back to the old version at once.
+    set_latest "$old"
+    if [ -n "$was_previous" ]; then echo "$was_previous" > "$PREVIOUS_FILE"; else rm -f "$PREVIOUS_FILE"; fi
+    echo "the release stopped before it changed any file; latest is $old again, and $new is still staged" >&2
+  else
+    echo "the release changed files and the game is not healthy. To go back to $old and the old files: $0 --back" >&2
+  fi
   exit 1
 fi
 rm -f "$STAGED_FILE"

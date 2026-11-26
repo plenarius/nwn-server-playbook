@@ -9,6 +9,7 @@ NWSYNC_DIR=${NWSYNC_DIR:-$HOME/nwsync}
 GAME=${GAME:-10.77.0.2}
 GAME_USER=${GAME_USER:-nwn}
 GAME_DIR=${GAME_DIR:-game}
+STAGING_DIR=${STAGING_DIR:-staging}
 IMAGE=${IMAGE:-nwsync-builder:2.3.2}
 BUILD_CPUS=${BUILD_CPUS:-1}
 BUILD_MEMORY=${BUILD_MEMORY:-1g}
@@ -41,7 +42,9 @@ live_version() {
     grep -a "now advertising" | tail -n 1 | grep -o "[0-9a-f]\{40\}"' 2>/dev/null || true
 }
 
-# Moves "latest" to a version in one step, so nobody ever reads a half-written file.
+# Moves "latest" to a version in one step, so nobody ever reads a half-written file. A second argument names
+# another folder's "latest" (the staging one).
 set_latest() {
-  printf '%s' "$1" > "$NWSYNC_DIR/latest.new" && mv -f "$NWSYNC_DIR/latest.new" "$NWSYNC_DIR/latest"
+  local dir=${2:-$NWSYNC_DIR}
+  printf '%s' "$1" > "$dir/latest.new" && mv -f "$dir/latest.new" "$dir/latest"
 }
