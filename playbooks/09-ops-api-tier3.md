@@ -63,11 +63,11 @@ cl GET /services/$OPS_SVC | python3 -c 'import json,sys; print(json.load(sys.std
 sed -i 's|^      # - /home/nwn/ops-api/gamedata:/data/game:ro|      - /home/nwn/ops-api/gamedata:/data/game:ro|; s|/home/nwn/|/home/'$DEPLOY_USER'/|g' /tmp/ops-api-compose.yaml
 grep -c 'ops-api/gamedata:/data/game:ro' /tmp/ops-api-compose.yaml
 cl PATCH /services/$OPS_SVC "{\"docker_compose_raw\":\"$(base64 -w0 /tmp/ops-api-compose.yaml)\"}" | python3 -c 'import json,sys; print("compose" if "uuid" in json.load(sys.stdin) else "FAILED")'; rm /tmp/ops-api-compose.yaml
-cl PATCH /services/$OPS_SVC/envs/bulk '{"data":[{"key":"GAME_NWN_ROOT","value":"/data/game/nwn"},{"key":"GAME_MODULE_FILE","value":"/data/game/module.mod"},{"key":"GAME_HAK_DIR","value":"/data/game/hak"},{"key":"GAME_TLK_DIR","value":"/data/game/tlk"}]}' | python3 -c 'import json,sys; d=json.load(sys.stdin); print("copied", len(d) if isinstance(d, list) else "FAILED")'
+cl PATCH /services/$OPS_SVC/envs/bulk '{"data":[{"key":"GAME_NWN_ROOT","value":"/data/game/nwn"},{"key":"GAME_MODULE_FILE","value":"/data/game/module.mod"},{"key":"GAME_HAK_DIR","value":"/data/game/hak"},{"key":"GAME_TLK_DIR","value":"/data/game/tlk"},{"key":"GAME_VAULT","value":"on"}]}' | python3 -c 'import json,sys; d=json.load(sys.stdin); print("copied", len(d) if isinstance(d, list) else "FAILED")'
 [ -n "$OPS_IMAGE" ] && cl PATCH /services/$OPS_SVC/envs/bulk "{\"data\":[{\"key\":\"OPS_API_IMAGE\",\"value\":\"$OPS_IMAGE\"}]}" | python3 -c 'import json,sys; print("image", "set" if isinstance(json.load(sys.stdin), list) else "FAILED")'
 ```
 
-Success: `1`, `compose`, `copied 4`, and `image set` if step 1 built one. `0` on the first line: the service's
+Success: `1`, `compose`, `copied 5`, and `image set` if step 1 built one. `0` on the first line: the service's
 compose file is older than this tier; stop and ask, and the person pastes the newer `coolify.yaml` in Coolify. Then **ask first**
 (this restarts the API) and, after the yes:
 
@@ -114,11 +114,11 @@ Success: a level, a number of classes, a number of worn items, and `False`. Repo
 
 ```sh
 ssh $DEPLOY_USER@$CONTROL 'sudo systemctl disable --now -q gamedata-sync.timer && sudo rm /etc/systemd/system/gamedata-sync.service /etc/systemd/system/gamedata-sync.timer && sudo systemctl daemon-reload && echo timer removed'
-for k in GAME_NWN_ROOT GAME_MODULE_FILE GAME_HAK_DIR GAME_TLK_DIR; do u=$(cl GET /services/$OPS_SVC/envs | python3 -c "import json,sys; r=[e['uuid'] for e in json.load(sys.stdin) if e['key']=='$k']; print(r[0] if r else '')"); [ -n "$u" ] && cl DELETE /services/$OPS_SVC/envs/$u > /dev/null; done; echo settings removed
+for k in GAME_NWN_ROOT GAME_MODULE_FILE GAME_HAK_DIR GAME_TLK_DIR GAME_VAULT; do u=$(cl GET /services/$OPS_SVC/envs | python3 -c "import json,sys; r=[e['uuid'] for e in json.load(sys.stdin) if e['key']=='$k']; print(r[0] if r else '')"); [ -n "$u" ] && cl DELETE /services/$OPS_SVC/envs/$u > /dev/null; done; echo settings removed
 ```
 
 Then **ask first**, and restart the API as in step 3; its `configured:` line no longer has `game_data`. The folder
-`~/ops-api/gamedata` and the mount line can stay; the vault routes stay on, as they are in every version with them.
+`~/ops-api/gamedata` and the mount line can stay; the vault routes go off with `GAME_VAULT`, and the `configured:` line no longer has `vault`.
 A newer image from step 1 can stay too, or go back to the old tag the same way as step 16 of the chapter.
 
 ## Stop and ask
