@@ -1,0 +1,10 @@
+# Starts nwn-watchdog.service every two minutes. Chapter 13.
+[Unit]
+Description=Run the NWN watchdog every two minutes
+
+[Timer]
+OnCalendar=*:0/2
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

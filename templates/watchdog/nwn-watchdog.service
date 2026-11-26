@@ -1,0 +1,16 @@
+# Runs the watchdog's checks once. Started every two minutes by nwn-watchdog.timer. Chapter 13.
+[Unit]
+Description=Check the NWN server from outside, and alert on changes
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nwn-watchdog
+ExecStart=/usr/local/bin/nwn-watchdog run
+TimeoutStartSec=90
+# It only needs to read its settings and write its own state.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nwn-watchdog
+PrivateTmp=yes
