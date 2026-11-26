@@ -785,3 +785,418 @@ and given to `tests/run.sh` as `TEST_HAK_DIR` and `TEST_TLK_DIR` (chapter 6, ste
 Not tested: a release with players online, a player joining while the version was pinned with `NWN_NWSYNCHASH`, a
 second person's Coolify or GitHub account (only the SSH key), and a game client on staging (the status query
 answered instead).
+
+## Tier 3. A calendar of what runs out, a release train, and the incidents behind the rules
+
+### What you learn
+
+A world that lives for years collects things with an end date: the domain, a dozen certificates, tokens that were
+given a year to live, a signing certificate, the operating system's support, a database version, a card on file.
+Each one is easy on the day it's made and forgotten by the day it runs out, which is usually a Sunday. And a world
+with many hands needs its releases to run like a train: on a timetable, with a moment when the doors close, and
+notes that write themselves from what came aboard.
+
+When you're done, you'll have:
+
+- an **expiry calendar**: one file in git that lists everything that runs out, with how to renew each;
+- [`templates/expiry/nwn-expiry.py`](../templates/expiry/nwn-expiry.py), a small checker on the control host that
+  reads the dates it can find by itself (certificates, the domain's registration, the end of support for your
+  operating system and images), adds the ones you wrote down, and warns in chapter 13's alert channel ahead of
+  time, once, then again as the day comes closer;
+- a **release train**: every pull request labelled for the notes, a **freeze** before each release that lets only
+  fixes for that release through, candidates on staging, and release notes grouped by label, the same labels the
+  changelog bot of chapter 10 posts;
+- our **incident list**: every incident behind a rule in this guide, one line each, with the chapter that teaches
+  the rule.
+
+**Time:** about an hour to write your first calendar, most of it finding the dates. The checker installs in five
+minutes. The release train is twenty minutes of setup in GitHub, and afterwards costs a label per pull request.
+
+You need chapter 13's watchdog (tier 2) on the control host, and chapter 6's release workflow (tier 2). The
+examples use `CONTROL` for the control host and `you/mymodule` for the module's repository.
+
+### What Layonara does
+
+- **Dates written down.** The handover page holds the dates that matter for our accounts, with where each is renewed,
+  and our tokens are made with an end date, so a forgotten one stops working instead of living for ever.
+- **Certificates renew themselves.** Our proxies renew every certificate a month before it runs out, and the
+  watchdog looks at the public ones from outside.
+- **Servers that know when to go.** Every short-lived server carries its own expiry (chapter 1, tier 3), and the
+  machine on an old price carries a note never to resize it.
+- **Many hands.** Several builders, staff and AI agents open pull requests on the module and the haks every day.
+  Every merge is posted to a public channel on our Discord, and a release gathers them.
+- **Freezes for the big moves.** Ordinary releases are small and frequent (tier 1), so we freeze only around the
+  big ones: a cut-over, a change that touches every player.
+- **Every incident is written down**, with its date, what happened, what fixed it and the rule it left. That list
+  is where most of this guide's Lessons come from, and it's at the end of this section.
+
+### The human playbook
+
+The new files are [`templates/expiry/`](../templates/expiry/) for the control host, and four for your module's
+repository: [`.github/release.yml`](../templates/module/.github/release.yml),
+[`.github/workflows/release-train.yml`](../templates/module/.github/workflows/release-train.yml),
+[`tools/freeze.sh`](../templates/module/tools/freeze.sh) and
+[`tools/release-labels.sh`](../templates/module/tools/release-labels.sh), with
+[`tools/release-train-ruleset.json`](../templates/module/tools/release-train-ruleset.json) beside them. Chapter 6's
+[`release.yml`](../templates/module/.github/workflows/release.yml) changed in one step, "Make the release", for
+release candidates; copy that step into yours.
+
+### The expiry calendar
+
+#### 28. GENERIC. Know what runs out
+
+Here is what I've found runs out on a world like ours. Not every line will be yours, and you'll have some I don't.
+
+| What | Why it bites | How the checker finds the date |
+|---|---|---|
+| The domain | Everything has its name. Auto-renew fails quietly when the card on file has expired | `domain`: the registry, over RDAP |
+| Certificates | Renewal is automatic, until a proxy change, a moved name or a rate limit stops it (chapter 7's lessons) | `cert`: the server, live |
+| API tokens with an end date | Cloudflare and GitHub tokens can be given one; Coolify's API tokens get 30 days unless you choose otherwise | `date`: you write it (step 30) |
+| Signing certificates | Anything you ship to players' computers, such as a launcher, may be signed, and a developer membership often keeps the certificate valid | `date` |
+| The payment card | The provider and the registrar charge it. It is how domains really lapse | `date` |
+| The operating system | An LTS release gets fixes for five years, then nothing | `eol`: endoflife.date |
+| Images and versions | MariaDB, Valkey, Caddy, Python: each version has an end of support | `eol` |
+| NWNX and game builds | A new game build needs a matching NWNX build; nothing tells you the day | `every`: a look every few months |
+| Scheduled workflows | GitHub turns off a scheduled workflow after 60 days without activity in the repository, such as chapter 6's daily flake report | `every` |
+| Legacy prices | Not an end date, a promise to keep: never resize that machine (chapter 1, step 22) | `every`: a yearly look |
+| Deploy keys and SSH keys | They don't expire, which is the trouble: a key nobody uses is a door nobody watches | `every` |
+| The vault, the runbook, a restore | Each is only as good as its last check (steps 25 and 26; chapter 12) | `every` |
+
+The certificate lines overlap with the watchdog, on purpose. The watchdog looks at the pages it watches every two
+minutes; the calendar holds every certificate you have, including the ones on no page, like the downloads and the
+operations API.
+
+#### 29. ADAPT. Write the calendar
+
+Change: every line, to your own names, dates and notes.
+
+Copy [`templates/expiry/expiry.list.example`](../templates/expiry/expiry.list.example) into your module's
+repository as `expiry.list`, beside `RUNBOOK.md` from step 26, and go through it line by line. Each line is a name,
+a kind, what to read, how many days ahead to warn, and a note that goes into the warning:
+
+```
+www-cert       cert    www.example.org      14   renewed by the proxy at 30 days left; a warning means renewal failed (chapter 11)
+domain         domain  example.org          45   auto-renew at the registrar; the card on file must be valid (chapter 2)
+ubuntu         eol     ubuntu/26.04         180  every machine's operating system: plan the upgrade (chapter 1)
+dns-token      date    2027-03-01           30   My Profile > API Tokens > Roll, then the token file (chapter 2)
+vault-review   every   2026-11-26+180d      14   walk the password vault with the second person (step 25)
+```
+
+`every` is the day something was last done and how often it should be: `2026-11-26+180d` comes due 180 days later.
+When you've done it, change the date in a pull request. Write the note for whoever is on duty that day: where to
+go, and which chapter explains it.
+
+Pick each warning so there's time to act. A certificate renewed at 30 days left warns at 14: if it alerts, renewal
+has already failed twice. A domain gets 45, because a registrar's support takes days. And a warning longer than
+the thing lives, such as 14 days on a 6-day certificate, warns after every renewal; that one is a mistake in the
+file, not in the certificate.
+
+Then let the checker read it, from your own computer:
+
+```sh
+python3 templates/expiry/nwn-expiry.py check expiry.list
+```
+
+It prints one line each, soonest first, and stops at a mistake in the file with its line number:
+
+```
+WARN    9.2  2026-12-06  dummy-token (date 2026-12-06, warns at 14)
+ok    116.9  2027-03-23  domain (domain example.org, warns at 45)
+ok   1644.2  2031-05-29  ubuntu (eol ubuntu/26.04, warns at 180)
+```
+
+A `FAIL` means it couldn't read that line: a name that doesn't resolve, a registry without RDAP (some country
+domains), a version endoflife.date doesn't know. For a domain whose registry has no RDAP, write the date from your
+registrar as a `date` line instead.
+
+#### 30. GENERIC. Find the dates you have to write down
+
+Tokens don't announce their end date, but you can ask. Each of these reads the token from a file, so it never
+appears on a command line or in your history, and prints only the date.
+
+Cloudflare. A token made under **My Profile** is a user token; one made under the account's **API Tokens** is an
+account token, and each has its own address. With the token in `~/cf.token`:
+
+```sh
+umask 077; printf 'Authorization: Bearer %s\n' "$(cat ~/cf.token)" > ~/cf.header
+curl -s -H @"$HOME/cf.header" https://api.cloudflare.com/client/v4/user/tokens/verify | python3 -c 'import json,sys; print((json.load(sys.stdin)["result"] or {}).get("expires_on", "no end date, or not a user token"))'
+curl -s -H @"$HOME/cf.header" https://api.cloudflare.com/client/v4/accounts/ACCOUNT_ID/tokens/verify | python3 -c 'import json,sys; print((json.load(sys.stdin)["result"] or {}).get("expires_on", "no end date"))'
+rm ~/cf.header
+```
+
+GitHub sends a fine-grained token's end date back on every answer, in a header:
+
+```sh
+umask 077; printf 'Authorization: Bearer %s\n' "$(cat ~/gh.token)" > ~/gh.header
+curl -sI -H @"$HOME/gh.header" https://api.github.com/rate_limit | grep -i '^github-authentication-token-expiration'; rm ~/gh.header
+```
+
+Coolify shows each API token's end under **Keys & Tokens**, **API tokens**. Signing certificates and memberships
+are on the developer account's page, and the card's date is on the card.
+
+#### 31. GENERIC. Install the checker beside the watchdog
+
+From this repository, with your calendar in `~/mymodule/expiry.list`:
+
+```sh
+scp -r templates/expiry nwn@CONTROL:expiry
+scp ~/mymodule/expiry.list nwn@CONTROL:expiry/
+ssh nwn@CONTROL 'sudo install -m 755 expiry/nwn-expiry.py /usr/local/bin/nwn-expiry && sudo install -d -m 755 /etc/nwn-expiry && sudo install -m 644 expiry/expiry.list /etc/nwn-expiry/ && sudo install -m 644 expiry/nwn-expiry.service expiry/nwn-expiry.timer /etc/systemd/system/ && sudo systemctl daemon-reload && echo installed'
+```
+
+It runs as the watchdog's own user, `nwn-watchdog`, and uses the watchdog's settings for where to send: the same
+webhook, the same style, the same name and mention. Nothing new is secret, and the calendar itself holds no secret
+either: only dates and notes. Then the road:
+
+```sh
+ssh nwn@CONTROL 'sudo -u nwn-watchdog nwn-expiry check /etc/nwn-expiry/expiry.list; sudo -u nwn-watchdog nwn-expiry test'
+```
+
+The same list as on your computer, then `sent`, and in the channel "expiry warnings arrive here".
+
+#### 32. GENERIC. Look, then start the timer
+
+```sh
+ssh nwn@CONTROL 'sudo systemctl start nwn-expiry.service && sudo journalctl -u nwn-expiry.service -n 8 -o cat --no-pager'
+ssh nwn@CONTROL 'sudo systemctl enable --now nwn-expiry.timer && systemctl list-timers nwn-expiry.timer --no-pager'
+```
+
+The first run sends one message: whatever is already inside its warning, and a line with the next five dates, so
+you can see it read everything. From then on it runs four times a day, and once after a boot if a run was missed.
+
+#### 33. GENERIC. When it warns
+
+A warning looks like this:
+
+```
+My World watchdog: expiry calendar
+ALERT expires soon dns-token: 9 days left, on 2026-12-06 · My Profile > API Tokens > Roll, then the token file (chapter 2)
+```
+
+It comes once when the line enters its warning, and again at 7 days, at 1 day and when it has run out, never in
+between. When a date moves later, one `OK ... renewed, now runs to ...` says the renewal took. For a `cert`,
+`domain` or `eol` line that happens by itself on the next run. For a line you wrote, renew the thing, change its
+date in the calendar in a pull request, and copy the file across:
+
+```sh
+scp ~/mymodule/expiry.list nwn@CONTROL:expiry/ && ssh nwn@CONTROL 'sudo install -m 644 expiry/expiry.list /etc/nwn-expiry/'
+```
+
+A line it can't read warns after two runs in a row, and says so again when it can. If the channel is down, nothing
+counts as sent and the next run tries again. On the 1st of each month it posts the next five dates. That's its
+heartbeat: if it stops coming, the checker stopped (chapter 13's "silence needs a heartbeat").
+
+### A release train
+
+#### 34. ADAPT. Labels, and notes that write themselves
+
+Change: the headings, if you'd group your notes differently.
+
+Chapter 6's release workflow already writes its notes with GitHub's `--generate-notes`, from the titles of the
+pull requests merged since the last release. Copy [`.github/release.yml`](../templates/module/.github/release.yml)
+into your module's repository and those notes are grouped by label:
+
+```yaml
+changelog:
+  exclude:
+    labels: [no-changelog]
+  categories:
+    - title: New in the world
+      labels: [feature]
+    - title: Fixed
+      labels: [fix, release-fix]
+```
+
+Then make the labels:
+
+```sh
+tools/release-labels.sh you/mymodule
+```
+
+The label names are the contract between three things: the notes, the label check in step 35, and chapter 10's
+changelog bot, which shows each merge's labels and leaves out `no-changelog` too. Change them in all three places
+or not at all.
+
+A pull request title is now something players read. A title like "Fix the stuck tavern door" works in the notes
+and in the channel; "fix #212 again" doesn't. That's worth a line in your contributing notes.
+
+#### 35. GENERIC. Two required checks
+
+Copy [`.github/workflows/release-train.yml`](../templates/module/.github/workflows/release-train.yml) and
+[`tools/freeze.sh`](../templates/module/tools/freeze.sh) into your module's repository, merge them, and make the
+checks required:
+
+```sh
+gh api -X POST repos/you/mymodule/rulesets --input tools/release-train-ruleset.json
+```
+
+That adds a rule set called **release train** beside any you already have. It's under **Settings**, **Rules**, and
+it asks for two checks on every change to `main`:
+
+- **label**: the pull request has one of the release-notes labels, so nothing reaches players unsorted. A pull
+  request without one shows a red check with the list of labels, and turns green when one is added.
+- **freeze**: `main` isn't frozen, or the pull request is labelled `release-fix`.
+
+Rule sets on private repositories need a paid GitHub plan; on a public repository they're free. A rule set with no
+bypass list holds for administrators too, which is what you want from a freeze.
+
+#### 36. ADAPT. The timetable
+
+Change: the day and the hours, to your world's rhythm.
+
+A train runs on a timetable people can plan around. Ours would read: the freeze starts on Friday evening, the
+release goes out on Sunday evening. In between:
+
+1. **The doors close.** On Friday:
+
+   ```sh
+   tools/freeze.sh start 48
+   ```
+
+   It prints `main is frozen until ... UTC` and re-runs the freeze check on every open pull request, so each one
+   shows the freeze at once. Pull requests can still be opened, reviewed and approved; they just can't merge.
+2. **A candidate goes to staging.** Tag the frozen `main` as `v1.4.0-rc1`. Chapter 6's release workflow stages it
+   exactly like a release, and marks its GitHub release as a pre-release. Everyone plays it on staging.
+3. **Only fixes for it get on.** A problem found on staging gets a pull request labelled `release-fix`, which
+   passes the freeze. Each merged fix is a new candidate, `rc2`, and so on.
+4. **Read the notes before you print them.**
+
+   ```sh
+   tools/freeze.sh notes v1.4.0
+   ```
+
+   prints what the final release's notes will say, grouped by label, and changes nothing. A title that reads badly
+   is fixed in the pull request, and the notes follow. A change in the wrong group gets its label changed.
+5. **The release.** Tag `v1.4.0` and go live with tier 2's routine (steps 13 to 16). Its notes start at the last
+   final release, not the last candidate, so they hold everything players are getting.
+6. **The doors open.**
+
+   ```sh
+   tools/freeze.sh end
+   ```
+
+   It re-runs the waiting pull requests' checks, and they can merge again.
+
+`tools/freeze.sh status` says whether `main` is frozen and lists the open pull requests with their labels. A freeze
+that runs past its time lets merges through on any new push, but a pull request that was refused stays red until
+`end` re-runs it, so end each freeze by hand.
+
+A small release doesn't need the train. The freeze is for the big ones, when many changes land together and one
+quiet weekend on staging is worth more than speed.
+
+#### 37. GENERIC. The public changelog
+
+Players hear about a release twice: each merge as it lands, from chapter 10's bot, and the release as a whole, from
+its notes. Both come from the same labels, so they agree. Post the release's notes to your announcements yourself,
+or have the bot do it (chapter 10's tier 3).
+
+Two kinds of change should never be in either: a fix for an exploit, until it's live, and anything that spoils a
+quest. Label those `no-changelog` before they merge, or better, make them in a private copy of the repository and
+merge them into the public one only when the release is out. The bot posts the moment a pull request merges, so a
+label added afterwards is too late.
+
+### The incident list
+
+#### 38. GENERIC. Keep your own
+
+Every rule in this guide came from a day something went wrong, and the Lessons at the end of each chapter say so.
+The habit worth copying is small: when something goes wrong, write one line of what happened, one line of what you
+changed, and the date. Keep it in git beside the runbook. After a year, it's the best page you have for a new
+member of staff, and it tells you which checks are worth their minutes.
+
+#### 39. LAYONARA-ONLY. Ours
+
+These are Layonara's, in date order, each with the rule it left and the chapter that teaches it.
+
+| Date | What happened | The rule it left | Chapter |
+|---|---|---|---|
+| 2024 to 2026-11-05 | The build kept shipping a compiled talk table committed in 2024, so no text change reached players | Build the talk table from its text on every build; never commit a built file | [7](07-haks-nwsync.md) |
+| 2026-10-25 | A nightly dump that couldn't reach the database wrote a 20-byte file and called it the backup | A failed backup never replaces a good one: retry, check the size, write nothing when wrong | [12](12-backups.md) |
+| 2026-10-26 | A health check that judged by a log file's age called a quiet, healthy server unhealthy | Ask the server a question; don't read a file | [4](04-game-server.md) |
+| 2026-10-26 | A locked, append-only backup key deleted an archive without an error, and nothing was freed | Append-only protects you only if whoever frees space looks first | [12](12-backups.md) |
+| 2026-10-30 to 11-05 | After the wiki moved, every visitor seemed to come from the proxy's address, so limits hit everyone at once | Trust the proxy's addresses first, put the proxy in front second | [2](02-dns.md) |
+| 2026-11-03 | An Ubuntu release upgrade deleted `/etc/timezone`, so a container failed to start, and switched off Docker's package source | After a release upgrade, check those two files | [1](01-servers.md) |
+| 2026-11-03 | A Docker package update restarted the Docker service; with `live-restore` on, all 21 containers kept running | Turn `live-restore` on before anything matters | [1](01-servers.md) |
+| 2026-11-04 | After a Docker upgrade, the websites' proxy held an old socket: five hours unreachable | A one-minute check that repairs the proxy | [3](03-coolify.md) |
+| 2026-11-04 to 11-07 | The talk table was copied over the published one in place, and a running server read shifted strings | Never change a file under a running server: copy, then rename | [7](07-haks-nwsync.md) |
+| 2026-11-05 | After an upgrade, cloud-init took the game host for a new machine: new host keys, IPv6 gone | Switch cloud-init off once a machine is set up | [1](01-servers.md) |
+| 2026-11-07 | Three services moved to another machine: one small DNS change each, because each pointed at its machine's name | Point services at a machine's name, never repeat an address | [2](02-dns.md) |
+| 2026-11-07 | Our backups moved to another machine | A move isn't finished until a backup is restored from the new place | [12](12-backups.md) |
+| 2026-11-07 | CI jobs used 2,450 of a month's 3,000 free minutes in one week, mostly waiting | Self-hosted runners next door | [8](08-ci.md) |
+| 2026-11-08 | The database kept the administrator password it was created with; the one in the settings did nothing | Change the password in the database, not only in the settings | [5](05-database.md) |
+| 2026-11-08 | Nine merges in half an hour each waited a quarter of an hour in the deploy queue | Skip superseded builds: the newest commit holds the others | [3](03-coolify.md) |
+| 2026-11-11 | GitHub gave up on webhooks while the bot was still posting | Answer GitHub first, post from a queue | [10](10-discord-bot.md) |
+| 2026-11-12 | The live game handed out an older content version than `latest`; a simple tidy-up would have deleted it | The tidy-up asks the live game what it hands out | [7](07-haks-nwsync.md) |
+| 2026-11-14 | A release used a plugin the live image didn't have switched on; the feature failed for every player | A plugin check before every release, the image by a tag that never changes, and the order written down | [4](04-game-server.md), [16](#the-checklist) |
+| 2026-11-17 | A short-lived server's self-delete ran two hours late, because a timer had moved under it | Delete at a time on the clock, and keep an independent reaper | [1](01-servers.md) |
+| 2026-11-18 | Grafana posted every alert twice: its contact point had no fixed id | Give a provisioned contact point a fixed `uid` | [13](13-monitoring.md) |
+| 2026-11-19 | The profiler's per-script timings were 88,000 of 198,000 series, and the dashboards crawled | Keep per-minute summaries in a policy of their own | [13](13-monitoring.md) |
+| undated | Coolify sets `COOLIFY_URL` in every container, and it silently replaced our own setting of that name | Don't reuse Coolify's names | [3](03-coolify.md) |
+
+And these I met while writing and testing this guide, on throwaway machines. They count too: each one would have
+happened to a reader.
+
+| Date | What happened | The rule it left | Chapter |
+|---|---|---|---|
+| 2026-11-18 | A container on the private address failed to start because it started before the tunnel, and Docker never tried again | Make Docker wait for the private network | [1](01-servers.md) |
+| 2026-11-18 | A new DNS record looked missing for minutes, because "no such name" had been asked before it existed | Create first, look up second | [2](02-dns.md) |
+| 2026-11-18 | A check worked on my machine and failed on a clean one: I'd copied one file by hand | Run the steps from a clean start before trusting them | [5](05-database.md) |
+| 2026-11-18 | Each chapter's test passed, and the whole tier 1 run from start to finish found a fault between two of them | Test the chapters together whenever a template changes | [README](../README.md#tested-as-a-whole) |
+| 2026-11-26 | A slow job's claim, passed into `DelayCommand`, was read twenty seconds later, empty | `DelayCommand` reads its arguments late: take a copy first | [5](05-database.md) |
+| 2026-11-26 | A watchdog pause typed during a run was lost when that run saved | One command at a time, with a lock | [13](13-monitoring.md) |
+| 2026-11-26 | A refused release left `latest` naming content the game host didn't have | Put the pointer back when nothing moved | [16](#lessons-1) |
+| 2026-11-26 | During a freeze, a pull request with a red freeze check merged anyway: an older run of the same check on the same commit had passed, and GitHub counted it | Re-run every run of a check, not only the newest | [16](#lessons-2) |
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/16-releasing-tier3.md`](../playbooks/16-releasing-tier3.md) installs and
+checks the expiry calendar, sets up the release train's labels and checks, and reads the notes before a release. It
+asks before the rule set, before every freeze and every lift, and it never renews anything itself: renewing a token
+or a card is yours.
+
+### Lessons
+
+- **Re-run every run, not the newest (2026-11-26).** The first `freeze.sh` re-ran the newest run of the freeze
+  check on each open pull request. One of them had two runs on the same commit, one from being opened and one from
+  being labelled, and the older one had passed. GitHub counts a check as passed when any run of it passed, so the
+  pull request merged in the middle of a freeze. Now it re-runs them all, and the test showed the merge refused.
+- **A date nobody reads is not a reminder.** A token's end date written on a handover page is a fact. The same date
+  in a file a timer reads is a warning, two weeks early, in the channel you already look at.
+- **Read what can be read.** Certificates, the domain and version support all say their own dates. Reading them
+  live means a renewal shows up by itself, and a renewal that failed shows up as a warning instead of an outage.
+- **Warn at the stages, not every day.** A daily reminder for two weeks becomes noise by the third day. Once when it
+  enters the window, then at a week, a day and the end, is enough to act on and few enough to notice.
+- **The notes are only as good as the titles.** Grouping by label sorts the list; it can't rewrite a title. Reading
+  the notes during the freeze is when a bad title costs a minute instead of an announcement.
+- **Lines that never expire still go in.** Deploy keys, the legacy price, the vault and the runbook have no end
+  date, and that is exactly why they're forgotten. An `every` line turns them into a date.
+
+### Tested
+
+On 2026-11-26, on a fresh Hetzner cloud server of the smallest shared type (Ubuntu 26.04.1, Python 3.14.4) with
+chapter 13's watchdog installed by its step 3, and from my own computer with gh 2.90.0:
+
+- the expiry checker, by `check`, by its service and by its timer, against real things: a Let's Encrypt
+  certificate for a test name, made with certbot 4.0.0 and the short-lived profile (6 days, served by `openssl
+  s_server`), a `.com` domain read over RDAP, the end of Ubuntu 26.04's support from endoflife.date, a stand-in
+  token with an end date 10 days away, one that had expired the day before, and a name that doesn't resolve;
+- alerting into a stand-in for the Discord webhook (a small receiver on the same machine): the certificate and the
+  token warned once, a second and third run sent nothing, the unresolvable name warned after its second run, the
+  expired token said `EXPIRED`, a token renewed by hand and the certificate renewed by certbot both said
+  `renewed`, the unreadable line said `readable again` when it could be read; with the receiver stopped, nothing
+  counted as sent and the next run sent it; a new month sent the heartbeat;
+- the example calendar from your own computer, every line read, the names that don't exist reported as `FAIL`;
+- reading a Cloudflare account token's end date with step 30's command;
+- the release train, on a throwaway private repository: the labels, the rule set, a pull request without a label
+  refused until it had one, a freeze started with `freeze.sh` turning open pull requests red, a `release-fix`
+  passing it, a direct push to `main` refused, the freeze lifted and the waiting pull request merged; a release
+  `v0.1.0`, a candidate `v0.2.0-rc1` marked as a pre-release, and a final `v0.2.0` whose notes began at `v0.1.0`,
+  grouped by label, with the `no-changelog` change left out, exactly as `freeze.sh notes` had printed them
+  beforehand. The release workflow there was chapter 6's "Make the release" step, copied as it is, with a stand-in
+  module file;
+- chapter 10's changelog filter given each of those pull requests as GitHub returns them: all posted except the
+  `no-changelog` one, with the same labels as the notes.
+
+Not tested: a GitHub fine-grained token's header (I had none to hand), Coolify's token page, a domain whose
+registry has no RDAP, the timer firing on its own schedule (it was enabled and its next run listed), and a real
+Discord channel (the stand-in received what Discord would).

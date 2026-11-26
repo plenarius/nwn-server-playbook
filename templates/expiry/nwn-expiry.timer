@@ -1,0 +1,11 @@
+# Starts nwn-expiry.service four times a day, and once after a boot if a run was missed. Chapter 16, tier 3.
+[Unit]
+Description=Check the expiry calendar four times a day
+
+[Timer]
+OnCalendar=*-*-* 00/6:17:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
