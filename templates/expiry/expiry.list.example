@@ -1,0 +1,43 @@
+# The expiry calendar: one line for everything on your world that runs out. Keep this file in git, beside your
+# runbook (chapter 16, tier 2, step 26), and install a copy on the control host as /etc/nwn-expiry/expiry.list.
+# Chapter 16, tier 3.
+#
+#   NAME   one word, what the alert calls it
+#   KIND   how the date is found:
+#            cert    read live from the TLS server; WHAT is host or host:port
+#            domain  read live from the domain's registry over RDAP; WHAT is the domain
+#            eol     read from endoflife.date; WHAT is product/version, as in its address
+#            date    written by hand; WHAT is YYYY-MM-DD
+#            every   done by hand on a rhythm; WHAT is the day it was last done + every how many days
+#   WARN   days ahead to warn. It warns once then, and again at 7 days, 1 day, and when it has run out.
+#   NOTE   the rest of the line: how to renew it, and where the guide teaches it. It goes into the alert.
+#
+# When you renew something by hand, change its date here in a pull request, then copy the file across.
+# Lines that read themselves (cert, domain, eol) need nothing: a renewal shows up on the next run.
+
+# --- Names and certificates -------------------------------------------------------------------------------
+domain             domain  example.org                 45  auto-renew at the registrar; the card on file must be valid (chapter 2)
+www-cert           cert    www.example.org             14  renewed by the proxy at 30 days left; a warning means renewal failed (chapter 11)
+nwsync-cert        cert    nwsync.example.org          14  the downloads' certificate; players can't fetch content without it (chapter 7)
+ops-cert           cert    ops.example.org             14  the operations API (chapter 9)
+
+# --- Tokens and keys with an end date ---------------------------------------------------------------------
+cloudflare-token   date    2027-03-01                  30  DNS write token: My Profile > API Tokens > Roll, then the token file (chapter 2)
+coolify-token      date    2026-12-26                  7   Coolify API token: Keys & Tokens > API tokens, new one, then cl.sh's file (chapter 3)
+github-ci-token    date    2027-04-15                  30  fine-grained token for the runners: Settings > Developer settings > Regenerate (chapter 8)
+signing-cert       date    2030-06-01                  60  code-signing certificate for anything you ship to players' computers
+developer-program  date    2027-06-01                  30  a yearly developer membership that keeps that signing certificate valid
+payment-card       date    2028-03-31                  30  the card the provider and the registrar charge; an expired card is how domains lapse
+
+# --- Versions that stop getting fixes ---------------------------------------------------------------------
+ubuntu             eol     ubuntu/26.04                180 every machine's operating system: plan the upgrade (chapter 1)
+mariadb            eol     mariadb/11.8                180 the game's database image (chapter 5)
+
+# --- Things done by hand on a rhythm ----------------------------------------------------------------------
+scheduled-jobs     every   2026-11-26+50d              7   GitHub turns off scheduled workflows after 60 days without a commit: push or re-enable (chapter 6)
+nwnx-build         every   2026-11-26+90d              14  is the server image on the NWNX build for the current game build? (chapter 4)
+legacy-price       every   2026-11-26+365d             30  the machine on an old price: still right-sized, never resized (chapter 1)
+deploy-keys        every   2026-11-26+365d             30  each repository's deploy keys and who has SSH: remove what nobody uses (chapter 16, step 24)
+restore-drill      every   2026-11-26+90d              14  restore last night's backup somewhere and compare it (chapter 12)
+vault-review       every   2026-11-26+180d             14  walk the password vault with the second person: every secret there, every recovery code (chapter 16, step 25)
+runbook            every   2026-11-26+180d             14  someone follows the runbook alone while you watch (chapter 16, step 26)

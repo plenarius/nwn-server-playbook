@@ -1,0 +1,20 @@
+# How GitHub groups a release's notes ("--generate-notes" in workflows/release.yml), by pull request label.
+# Each merged pull request goes under the first heading whose label it carries. The same labels show on the
+# changelog bot's post for each merge (chapter 10), and "no-changelog" keeps a pull request out of both.
+# Chapter 16, tier 3.
+changelog:
+  exclude:
+    labels: [no-changelog]
+  categories:
+    - title: New in the world
+      labels: [feature]
+    - title: New content
+      labels: [content]
+    - title: Balance
+      labels: [balance]
+    - title: Fixed
+      labels: [fix, release-fix]
+    - title: For builders and staff
+      labels: [tooling]
+    - title: Everything else
+      labels: ["*"]

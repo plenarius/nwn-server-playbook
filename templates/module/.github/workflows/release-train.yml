@@ -1,0 +1,44 @@
+name: Release train
+
+# Two checks on every pull request, for a world with many contributors (chapter 16, tier 3). Make both required
+# on main (Settings, Rules), so a red one blocks the merge button:
+#   label   the pull request carries one label from .github/release.yml, so the release notes and the
+#           changelog know where it goes (or no-changelog)
+#   freeze  main is not in a freeze; during one, only pull requests labelled release-fix may merge
+# A freeze is the repository variable FREEZE_UNTIL, a time in UTC (2026-12-05T20:00Z). tools/freeze.sh sets it,
+# lifts it, and re-runs these checks on every open pull request, because a check only runs when its pull
+# request changes.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+permissions: {}
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: One release-notes label
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          for l in $LABELS; do
+            case "$l" in feature|content|balance|fix|release-fix|tooling|no-changelog) echo "labelled $l"; exit 0;; esac
+          done
+          echo "::error::Add one label: feature, content, balance, fix, tooling, or no-changelog for a change players never see."
+          exit 1
+
+  freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Not in a freeze
+        env:
+          UNTIL: ${{ vars.FREEZE_UNTIL }}
+          FIX: ${{ contains(github.event.pull_request.labels.*.name, 'release-fix') }}
+        run: |
+          if [ -z "$UNTIL" ] || [ "$(date -u -d "$UNTIL" +%s)" -le "$(date -u +%s)" ]; then echo "no freeze"; exit 0; fi
+          if [ "$FIX" = true ]; then echo "frozen until $UNTIL, and this is a release-fix: it may merge"; exit 0; fi
+          echo "::error::main is frozen for the release until $UNTIL UTC. Fixes for the release: label release-fix. Anything else waits: tools/freeze.sh end re-runs this check when the freeze lifts."
+          exit 1
