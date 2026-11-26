@@ -13,6 +13,10 @@ STAGING_DIR=${STAGING_DIR:-staging}
 IMAGE=${IMAGE:-nwsync-builder:2.3.2}
 BUILD_CPUS=${BUILD_CPUS:-1}
 BUILD_MEMORY=${BUILD_MEMORY:-1g}
+MODELS=${MODELS:-ascii}
+MODEL_CACHE=${MODEL_CACHE:-$HOME/model-cache}
+GAME_DATA=${GAME_DATA:-$HOME/nwn-data}
+BUILDERS=${BUILDERS:-no}
 KEEP=${KEEP:-3}
 MIN_AGE_DAYS=${MIN_AGE_DAYS:-7}
 # What is staged and what came before live with the scripts, not in the folder players download from.
@@ -27,12 +31,19 @@ if [ -z "${CONTENT_LOCK_HELD:-}" ]; then
 fi
 
 # Runs a command in the builder image, as this user, with the content repository at /src and the download
-# folder at /nwsync. Builds the image first if it is missing.
+# folder at /nwsync. Builds the image first if it is missing. With MODELS=compile (tier 3), the model cache is at
+# /cache and the game's data, read-only, at /nwn.
 in_image() {
   docker image inspect "$IMAGE" > /dev/null 2>&1 ||
     { echo "building the builder image $IMAGE"; docker build -q -t "$IMAGE" "$here/builder" > /dev/null; }
+  local models=()
+  if [ "$MODELS" = compile ]; then
+    [ -f "$GAME_DATA/data/nwn_base.key" ] || { echo "MODELS=compile: no game data in $GAME_DATA (see chapter 7, tier 3)" >&2; return 1; }
+    mkdir -p "$MODEL_CACHE"
+    models=(-e MODELS=compile -e MODEL_CACHE=/cache -e NWN_ROOT=/nwn -v "$MODEL_CACHE:/cache" -v "$GAME_DATA:/nwn:ro")
+  fi
   docker run --rm -i --user "$(id -u):$(id -g)" --cpus "$BUILD_CPUS" --memory "$BUILD_MEMORY" \
-    -v "$CONTENT_DIR:/src" -v "$NWSYNC_DIR:/nwsync" "${extra_mounts[@]}" "$IMAGE" "$@"
+    -v "$CONTENT_DIR:/src" -v "$NWSYNC_DIR:/nwsync" "${models[@]}" "${extra_mounts[@]}" "$IMAGE" "$@"
 }
 extra_mounts=()
 
