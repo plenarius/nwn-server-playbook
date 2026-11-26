@@ -282,8 +282,8 @@ rehearsal on a copy was about 14, with the game still running for players.
 - **Every file is safe to run twice.** `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `INSERT IGNORE`
   appear over 350 times in ours.
 - **The test database is built from the same files.** Every run of our test suite starts a fresh database with our
-  tables' layout and no player data, loads every migration into it, and runs the module's tests against it, so a migration is exercised many times
-  before it ever meets the live database.
+  tables' layout and no player data, loads every migration into it, and runs the module's tests against it, so a
+  migration is exercised many times before it ever meets the live database.
 - **Big changes get a rehearsal of their own.** Our housing rework came with a script that applies its migrations
   to a throwaway database, applies them again, rolls them back, and compares every table before and after.
 - **Some changes have a matching rollback file,** about two dozen so far, for the big ones.
@@ -409,7 +409,8 @@ scp -r migrations nwn@GAME:incoming/
 ```
 
 The first line clears what an earlier rehearsal left, so the folder on the game host is exactly the one in your
-repository. Then release as usual, with `sudo ./release.sh`. When a release brings migrations, the script does this, in order:
+repository. Then release as usual, with `sudo ./release.sh`. When a release brings migrations, the script does
+this, in order:
 
 1. compares the folder with the ledger, and stops if a file that ran was changed or is missing;
 2. makes the backup, as always;
@@ -478,7 +479,8 @@ ssh -t nwn@GAME 'cd game && sudo ./restore-db.sh backups/20261126-142612'
 It asks you to type `restore`, because everything stored since that backup is lost: every gold piece earned, every
 quest finished since. Then it stops the game, empties the game's database, loads the backup and starts the game
 again. On the test that took 3 seconds. The ledger comes back with the tables, so `./migrate.sh status` afterwards
-lists the undone files as waiting again, which is exactly the truth.
+lists the undone files as waiting again, which is exactly the truth. Your next release runs them again, as
+always.
 
 Please think twice before this step on a world with players, and if you can, take a fresh `sudo ./backup.sh` first,
 so even the restore can be undone.
@@ -528,9 +530,9 @@ restore is always yours alone.
 
 ### Tested
 
-On 2026-11-26, on a fresh Hetzner cloud server of the smallest shared type in the state tier 1 leaves it (game,
-database, the example module from chapter 6 and the nightly backup), with `nwnxee/unified:ed79330`, MariaDB 11.8
-and Ubuntu 26.04:
+On 2026-11-26, on two fresh Hetzner cloud servers of the smallest shared type, with `nwnxee/unified:ed79330`,
+MariaDB 11.8 and Ubuntu 26.04. First on the game host in the state tier 1 leaves it (game, database, the example
+module from chapter 6 and the nightly backup):
 
 - `status`, `rehearse` and `apply` of the two example migrations, then `apply` again (`nothing to apply`);
 - an applied file changed by one comment line: `status` and `apply` refused, and a new file waiting beside it was
@@ -547,6 +549,18 @@ and Ubuntu 26.04:
   the two as waiting; `apply` then brought them back;
 - the nightly timer's dump containing the ledger's rows;
 - two copies of `migrate.sh` at once (the second refused), and `apply` with the database stopped (refused).
+
+Then all over again with the game moved into Coolify 4.7.5 on a second server, as chapter 4's tier 2 does it, the
+database administrator's password nowhere in Coolify:
+
+- a release of migrations only (23 seconds) and one of a module with a new migration (17 seconds), both healthy
+  after and the service `running:healthy` in Coolify;
+- a changed applied file refusing a release before its backup; a migration failing on the copy refusing one with
+  the game untouched; the corrected file then released;
+- `release.sh --undo` naming the migration and the backup before; `restore-db.sh` of that backup (2 seconds), the
+  ledger back as it was and the undone file waiting again; `apply` then bringing it back;
+- the nightly timer's service dumping the ledger with all its rows, and a Coolify **Restart** of the service
+  leaving the ledger as it was, with nothing waiting.
 
 Not tested: a database larger than a few tables (the rehearsal's time and room grow with it), migrations with
 stored procedures or triggers, and a release with players online.

@@ -70,7 +70,7 @@ ask. Never fix it by editing or deleting a file in the ledger, or a row of the l
 ### 4. Rehearse on a copy
 
 ```sh
-ssh $DEPLOY_USER@$GAME 'df -h --output=avail /var/lib/docker | tail -1; cd game && du -sh db | cut -f1; MIGRATIONS=~/incoming/migrations ./migrate.sh rehearse; echo "exit $?"'
+ssh $DEPLOY_USER@$GAME 'df -h --output=avail /var/lib/docker | tail -1; cd game && sudo du -sh db | cut -f1; MIGRATIONS=~/incoming/migrations ./migrate.sh rehearse; echo "exit $?"'
 ```
 
 Success: free space well above the size of `db`, then `rehearsal passed` and `exit 0`. The live database is not
