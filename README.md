@@ -24,7 +24,7 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 | 2 | DNS: giving your server a name | [chapter](chapters/02-dns.md) | [tier 1](playbooks/02-dns.md), [tier 2](playbooks/02-dns-tier2.md) | Tiers 1 and 2 written and tested; tier 3 to come |
 | 3 | Coolify | [chapter](chapters/03-coolify.md) | [tier 2](playbooks/03-coolify.md) | Not used in tier 1; tier 2 written and tested; tier 3 to come |
 | 4 | The game server and NWNX | [chapter](chapters/04-game-server.md) | [tier 1](playbooks/04-game-server.md), [tier 2](playbooks/04-game-server-tier2.md) | Tiers 1 and 2 written and tested; tier 3 to come |
-| 5 | The database | [chapter](chapters/05-database.md) | [playbook](playbooks/05-database.md) | Tier 1 written and tested; tiers 2 and 3 to come |
+| 5 | The database | [chapter](chapters/05-database.md) | [tier 1](playbooks/05-database.md), [tier 2](playbooks/05-database-tier2.md) | Tiers 1 and 2 written and tested (migrations with a ledger, rehearsed on a backup copy, run by `release.sh`; plain Compose and Coolify); tier 3 to come |
 | 6 | Your module in git | [chapter](chapters/06-module.md) | [playbook](playbooks/06-module.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 7 | Custom content: haks, the talk table and NWSync | [chapter](chapters/07-haks-nwsync.md) | [tier 1](playbooks/07-haks-nwsync.md), [tier 2](playbooks/07-haks-nwsync-tier2.md) | Tiers 1 and 2 written and tested (builder image, staging, promote and roll back, prune); tier 3 to come |
 | 8 | CI and runners | | | Tier 1 is covered by chapter 6 (the compile check); not written yet |
