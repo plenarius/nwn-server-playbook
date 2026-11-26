@@ -1,0 +1,33 @@
+# The operations API (chapter 9), as a Docker Compose service in Coolify on the control host.
+#
+# The image is built on the control host from a checkout of https://github.com/plenarius/nwn-ops-api and named after
+# its commit (chapter 9, step 3), so the API changes version only when you build a new one and change OPS_API_IMAGE.
+# Coolify doesn't redeploy it on its own, which matters: a countdown or a deploy in progress lives inside the
+# API's process and is lost if the API restarts in the middle of it.
+#
+# Every setting of the service reaches the container (Coolify gives a service's settings to all its containers).
+# The ones named below show up in Coolify's Environment variables page by themselves; add the others there by
+# name, as templates/ops-api/ops-api.env.example lists them.
+services:
+  ops-api:
+    image: ${OPS_API_IMAGE:?set OPS_API_IMAGE to the image you built, such as nwn-ops-api:e77f32c}
+    pull_policy: never   # built here, not in a registry
+    environment:
+      OPS_API_KEY: ${OPS_API_KEY}
+      OPS_API_ADMIN_KEY: ${OPS_API_ADMIN_KEY}
+      OPS_API_TEAM_KEY: ${OPS_API_TEAM_KEY}
+      GAME_HOST: ${GAME_HOST:-10.77.0.2}
+      SSH_USER: ${SSH_USER:-nwn}
+      SSH_KNOWN_HOSTS: /data/ssh/known_hosts
+      SSH_SUDO: ${SSH_SUDO:-true}
+      GAME_DIR: ${GAME_DIR:-/home/nwn/game}
+      NWNX_IMAGE: ${NWNX_IMAGE}
+    ports:
+      # Only on the control host's private address. The API can stop your game, so it never goes on a public one.
+      - "${OPS_API_BIND:-10.77.0.1}:8100:8100"
+    volumes:
+      # The key the API logs in to the game host with, and the game host's public key. Owned by uid 1000 (the
+      # user inside the container), mode 600 and 644.
+      - /home/nwn/ops-api/ssh/id_ed25519:/data/ssh/id_ed25519:ro
+      - /home/nwn/ops-api/ssh/known_hosts:/data/ssh/known_hosts:ro
+    restart: unless-stopped
