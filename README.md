@@ -28,6 +28,7 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 | 6 | Your module in git | [chapter](chapters/06-module.md) | [playbook](playbooks/06-module.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 7 | Custom content: haks, the talk table and NWSync | [chapter](chapters/07-haks-nwsync.md) | [playbook](playbooks/07-haks-nwsync.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 8 | CI and runners | | | Tier 1 is covered by chapter 6 (the compile check); not written yet |
+| 11 | A website | [chapter](chapters/11-website.md) | [playbook](playbooks/11-website.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 12 | Backups and restore | [chapter](chapters/12-backups.md) | [playbook](playbooks/12-backups.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 13 | Monitoring and alerting | | | Tier 1 is covered by chapter 4 (the health check); not written yet |
 
