@@ -20,7 +20,7 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 
 | # | Chapter | People | Agents | State |
 |---|---|---|---|---|
-| 1 | Choosing and preparing servers | [chapter](chapters/01-servers.md) | [playbook](playbooks/01-servers.md) | Tier 1 written and tested; tiers 2 and 3 to come |
+| 1 | Choosing and preparing servers | [chapter](chapters/01-servers.md) | [tier 1](playbooks/01-servers.md), [tier 2](playbooks/01-servers-tier2.md) | Tiers 1 and 2 written and tested; tier 3 to come |
 | 2 | DNS: giving your server a name | [chapter](chapters/02-dns.md) | [playbook](playbooks/02-dns.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 | 3 | Coolify | | | Not used in tier 1; not written yet |
 | 4 | The game server and NWNX | [chapter](chapters/04-game-server.md) | [playbook](playbooks/04-game-server.md) | Tier 1 written and tested; tiers 2 and 3 to come |
