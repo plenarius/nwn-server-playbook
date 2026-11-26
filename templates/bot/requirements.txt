@@ -1,0 +1,34 @@
+# Pinned with `uv pip compile --python-version 3.12 --exclude-newer 2026-11-12 requirements.in -o requirements.txt` (releases at least two weeks old
+# on 2026-11-26). Edit requirements.in, then make this file again.
+aiohappyeyeballs==2.7.1
+    # via aiohttp
+aiohttp==3.14.5
+    # via
+    #   -r requirements.in
+    #   discord-py
+aiosignal==1.4.0
+    # via aiohttp
+attrs==26.1.0
+    # via aiohttp
+discord-py==2.7.1
+    # via -r requirements.in
+frozenlist==1.8.0
+    # via
+    #   aiohttp
+    #   aiosignal
+idna==3.20
+    # via yarl
+multidict==7.2.1
+    # via
+    #   aiohttp
+    #   yarl
+propcache==0.5.4
+    # via
+    #   aiohttp
+    #   yarl
+typing-extensions==4.16.0
+    # via
+    #   aiohttp
+    #   aiosignal
+yarl==1.25.1
+    # via aiohttp
