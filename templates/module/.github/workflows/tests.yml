@@ -3,6 +3,10 @@ name: Tests
 # Runs the headless tests (tests/run.sh) on a real NWNX server, in Docker, on GitHub's own machines: on every pull
 # request, every change to main, by hand ("Run workflow"), and as the first step of a release (release.yml).
 # Needs no secrets. The logs and junit.xml are kept with the run for 14 days, pass or fail.
+#
+# If your module uses haks, set NWSYNC_URL below to your download address (chapter 7). The tests then get the haks
+# and the talk table from it, the way a player's game does: the staged version if there is one, or else the one
+# players get now. Each version is downloaded once and kept in GitHub's cache.
 on:
   pull_request:
   push:
@@ -23,6 +27,8 @@ env:
   NEVERWINTER_VERSION: "2.3.2"
   # The same image your server runs, and the same as in compile-check.yml.
   NWNX_IMAGE: nwnxee/unified:ed79330
+  # Your download address, such as https://nwsync.example.org, or empty if your module uses no haks.
+  NWSYNC_URL: ""
 
 jobs:
   tests:
@@ -37,10 +43,39 @@ jobs:
           neverwinter-version: ${{ env.NEVERWINTER_VERSION }}
           nwnx-image: ${{ env.NWNX_IMAGE }}
 
+      - name: Which content to test with
+        id: content
+        if: env.NWSYNC_URL != ''
+        run: |
+          set -o pipefail
+          tests/tools/fetch_content.sh --which "$NWSYNC_URL" | tee -a "$GITHUB_OUTPUT"
+
+      # A version's name is the checksum of its list of files, so a version in the cache can never be out of date.
+      - name: The content from the cache
+        id: cache
+        if: env.NWSYNC_URL != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: tests/.content
+          key: nwsync-${{ steps.content.outputs.version }}
+
+      - name: Download the content
+        if: env.NWSYNC_URL != '' && steps.cache.outputs.cache-hit != 'true'
+        run: tests/tools/fetch_content.sh "$NWSYNC_URL" tests/.content "${{ steps.content.outputs.version }}"
+
+      # Saved straight away, not at the end, so a run whose tests fail doesn't download it all again next time.
+      - name: Keep the content in the cache
+        if: env.NWSYNC_URL != '' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: tests/.content
+          key: nwsync-${{ steps.content.outputs.version }}
+
       - name: Run the tests
         # pipefail: without it the step takes tee's exit status, and a failed test would pass the run.
         run: |
           set -o pipefail
+          [ -z "$NWSYNC_URL" ] || export TEST_HAK_DIR=$PWD/tests/.content/hak TEST_TLK_DIR=$PWD/tests/.content/tlk
           tests/run.sh --filter "${{ inputs.filter || 't_' }}" | tee "$RUNNER_TEMP/results.txt"
 
       - name: Show the results on the run's page

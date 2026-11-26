@@ -18,6 +18,7 @@ otherwise.
 | `DEPLOY_USER` | The deploy user | `nwn` |
 | `STAGING_PORT` | The staging game's UDP port | `5122` |
 | `VERSION` | The tag to release, `vX.Y.Z` | none: a person gives it |
+| `NWSYNC_URL` | The download address players' games use (chapter 7), if the module lists haks | empty: no haks |
 
 Secrets: the staging game's passwords are typed by a person into Coolify (step 5). The staging key is made by you
 in step 6 in a private temporary file and goes only to GitHub (`gh secret set` reads it from standard input) and
@@ -30,34 +31,40 @@ nasher --version | head -1; ls "$NWN_ROOT/data/nwn_base.key" > /dev/null && echo
 git -C "$REPO_DIR" status -s | wc -l; ls "$REPO_DIR/tests/run.sh" 2>/dev/null | wc -l
 gh run list -R $GH_REPO -w "Compile check" -b main -L 1 --json conclusion -q '.[0].conclusion'
 ssh $DEPLOY_USER@$GAME 'ls -d game/backups/*/ | tail -1; docker ps --format "{{.Label \"com.docker.compose.service\"}}" | sort | tr "\n" " "'
+[ -z "$NWSYNC_URL" ] || { V=$(curl -fsS "$NWSYNC_URL/latest"); echo $V; curl -fsS -o /dev/null -w '%{http_code}\n' "$NWSYNC_URL/manifests/$V.origin"; }
 ```
 
 Success: `nasher 1.2.2`, `game ok`, a Compose version; `0` and `0` (clean, no tests yet; if `1`, the tests are
 already there: skip step 1); `success`; a backup folder; the services include `mariadb nwserver` and no
-`staging-nwserver`. If a staging service exists, stop and ask.
+`staging-nwserver`. If a staging service exists, stop and ask. With `NWSYNC_URL`: a 40-character version, then
+`200`. A `404` there means the content was written without `--write-origins`: a person publishes it once more with
+chapter 7's command or `publish.sh` (same content, same version), then start again.
 
 ## Steps
 
 ### 1. Copy the tests in
 
 ```sh
-cp -r "$GUIDE/templates/module/tests" . && mkdir -p .github/actions && cp -r "$GUIDE/templates/module/.github/actions/nwn-tools" .github/actions/ && cp "$GUIDE/templates/module/.github/workflows/tests.yml" "$GUIDE/templates/module/.github/workflows/release.yml" .github/workflows/ && echo 'tests/.run/' >> .gitignore
+cp -r "$GUIDE/templates/module/tests" . && mkdir -p .github/actions && cp -r "$GUIDE/templates/module/.github/actions/nwn-tools" .github/actions/ && cp "$GUIDE/templates/module/.github/workflows/tests.yml" "$GUIDE/templates/module/.github/workflows/release.yml" .github/workflows/ && printf 'tests/.run/\ntests/.content/\n' >> .gitignore
 grep -q '^name = "test"' nasher.cfg || printf '\n[target]\nname = "test"\ndescription = "The module plus the tests in tests/nss, for tests/run.sh. Never put this one on a server."\nfile = "test.mod"\n\n  [target.sources]\n  include = "src/**/*.{nss,json}"\n  include = "tests/nss/*.nss"\n' >> nasher.cfg
 grep -h 'NWNX_IMAGE:' .github/workflows/*.yml | sort -u
+[ -z "$NWSYNC_URL" ] || sed -i "s|^  NWSYNC_URL: .*|  NWSYNC_URL: \"$NWSYNC_URL\"|" .github/workflows/tests.yml; grep '^  NWSYNC_URL:' .github/workflows/tests.yml
 ```
 
 Success: one `NWNX_IMAGE:` line (all three workflows name the same image). If there are two, set the tests' and
-the release's to the compile check's.
+the release's to the compile check's. Then the `NWSYNC_URL:` line, with the address or empty.
 
 ### 2. Run the tests
 
 ```sh
-tests/run.sh > /tmp/tests-out.txt; echo "exit $?"; tail -6 /tmp/tests-out.txt
+tests/run.sh ${NWSYNC_URL:+--content "$NWSYNC_URL"} > /tmp/tests-out.txt; echo "exit $?"; tail -6 /tmp/tests-out.txt
 ```
 
 Success: `exit 0`, then lines starting `PASS` and a last line `N passed, 0 failed, ...`. (The exit status is
 taken before any pipe on purpose: `run.sh | tail` would report `tail`'s.) A `SKIP t_load_recorded` is
-fine in a module without chapter 6's `mod_load`. On a failure read `tests/.run/logs/nwserverLog1.txt` and
+fine in a module without chapter 6's `mod_load`. With `NWSYNC_URL`, `grep ^content /tmp/tests-out.txt` shows `content <version>: N files
+checked, ...`. `the module needs X.hak` means the module lists content that isn't published or staged: stop and ask
+(a person stages it with chapter 7's `publish.sh`). On a failure read `tests/.run/logs/nwserverLog1.txt` and
 `nwengineLog.txt`, and stop and ask: do not change or delete a test to make it pass.
 
 ### 3. Prove a test can fail
