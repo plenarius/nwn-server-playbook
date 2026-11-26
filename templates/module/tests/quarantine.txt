@@ -1,0 +1,7 @@
+# Tests in quarantine (chapter 6, tier 3): they still run, and the report shows each failure, but a failure here
+# doesn't fail the run. One test a line, then # and the issue where someone is fixing it, and the date:
+#
+#   t_bank_deposit   # issue 12, 2026-11-26: fails when the server is slow to start
+#
+# Keep it short. A test stays here only while its issue is open; the flake report lists every name with how long
+# it has been here, and says when one has passed for a week, so it can come off again.

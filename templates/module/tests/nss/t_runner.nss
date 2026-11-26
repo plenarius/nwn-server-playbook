@@ -1,7 +1,9 @@
 // t_runner: finds the tests, runs them one at a time and logs each result. Not a test itself.
 //
-// The tests are the compiled scripts in the module whose names start with the filter (default "t_") and have the
-// form t_<system>_<case>. They run in alphabetical order. For each one the log gets
+// The tests are the compiled scripts in the module of the form t_<system>_<case> that the filter names. The filter
+// (default "t_") is a list split by commas: an entry ending in an underscore takes every test whose name starts
+// with it (t_db_), any other entry is one test's whole name (t_db_roundtrip). That is how test selection and test
+// lanes hand the runner an exact list (chapter 6, tier 3). They run in alphabetical order. For each one the log gets
 //   TEST|START|t_x_y|   then any   TEST|ASSERT|t_x_y|<what failed>   and one of
 //   TEST|PASS|t_x_y|<asserts>   TEST|FAIL|t_x_y|<why>   TEST|SKIP|t_x_y|<why>
 // and after the last one TEST|END||<passed> <failed> <skipped>. tests/run.sh stops the server when it sees END.
@@ -89,6 +91,14 @@ void RunTest(int nIndex)
         Finish(nIndex, FALSE);
 }
 
+// Adds sName to jTests if it is a test and not there yet.
+json AddTest(json jTests, string sName)
+{
+    if (IsTestName(sName) && JsonFind(jTests, JsonString(sName)) == JsonNull())
+        jTests = JsonArrayInsert(jTests, JsonString(sName));
+    return jTests;
+}
+
 void main()
 {
     object oModule = GetModule();
@@ -96,13 +106,23 @@ void main()
     if (GetStringLeft(sFilter, 2) != "t_")
         sFilter = "t_";
     json jTests = JsonArray();
-    int n = 1;
-    string sName = ResManFindPrefix(sFilter, RESTYPE_NCS, n);
-    while (sName != "")
+    while (sFilter != "")
     {
-        if (IsTestName(sName))
-            jTests = JsonArrayInsert(jTests, JsonString(sName));
-        sName = ResManFindPrefix(sFilter, RESTYPE_NCS, ++n);
+        int nComma = FindSubString(sFilter, ",");
+        string sEntry = nComma < 0 ? sFilter : GetStringLeft(sFilter, nComma);
+        sFilter = nComma < 0 ? "" : GetSubString(sFilter, nComma + 1, GetStringLength(sFilter));
+        if (GetStringRight(sEntry, 1) == "_")
+        {
+            int n = 1;
+            string sName = ResManFindPrefix(sEntry, RESTYPE_NCS, n);
+            while (sName != "")
+            {
+                jTests = AddTest(jTests, sName);
+                sName = ResManFindPrefix(sEntry, RESTYPE_NCS, ++n);
+            }
+        }
+        else if (ResManGetAliasFor(sEntry, RESTYPE_NCS) != "")
+            jTests = AddTest(jTests, sEntry);
     }
     jTests = JsonArrayTransform(jTests, JSON_ARRAY_SORT_ASCENDING);
     SetLocalJson(oModule, RUNNER_TESTS, jTests);
