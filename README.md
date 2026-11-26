@@ -16,6 +16,15 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 | 2. A server with a team | A small team with regular releases | Tier 1, plus a second machine for building and control, a private network, Coolify, staged releases, a headless test suite, an operations API with a Discord dashboard, Cloudflare, off-site encrypted backups, outside uptime checks, dashboards | 2 |
 | 3. Layonara-grade | A long-lived world with many contributors and AI agents | Tier 2, plus self-hosted runners and test lanes, picture previews on pull requests, a dev server, single sign-on across website, forum and wiki, agent machines with generated guides, an issue watcher, burst servers | 3 or more |
 
+## Chapters
+
+| # | Chapter | People | Agents | State |
+|---|---|---|---|---|
+| 1 | Choosing and preparing servers | [chapter](chapters/01-servers.md) | [playbook](playbooks/01-servers.md) | Tier 1 written and tested; tiers 2 and 3 to come |
+
+Every chapter has the same five parts: what you learn, what Layonara does, the playbook for people, the playbook
+for agents, and the lessons behind the rules.
+
 ## How code gets in here
 
 Every script, workflow and compose file the guide quotes is a file in this repository that you can copy and run.
