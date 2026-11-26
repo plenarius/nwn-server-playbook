@@ -1,0 +1,110 @@
+<!doctype html>
+<!--
+  One character's page (chapter 11, tier 3), served for every /characters/<name>. It asks
+  /characters/<name>.json on this same site, never the operations API itself, so it holds no key. Only the
+  characters listed in characters.txt have a page. Change the name in <title> and the colour in the first line
+  of <style> to yours.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A character of My World</title>
+  <meta name="robots" content="noindex">
+  <style>
+    :root { --accent: #8a5a1c; --ink: #1d1a16; --soft: #5d564c; --paper: #faf7f2; --line: #ddd5c8; }
+    @media (prefers-color-scheme: dark) {
+      :root { --accent: #e0b070; --ink: #ece6dc; --soft: #a79f92; --paper: #171512; --line: #37322b; }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none; }
+    body {
+      margin: 0; padding: 3rem 1.25rem 4rem; background: var(--paper); color: var(--ink);
+      font: 1.0625rem/1.65 Georgia, "Iowan Old Style", "Times New Roman", serif;
+    }
+    main { max-width: 38rem; margin: 0 auto; }
+    h1 { font-size: 2.4rem; line-height: 1.15; margin: 0 0 .4rem; letter-spacing: -.01em; overflow-wrap: anywhere; }
+    h2 { font: 600 .8rem/1.9 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--accent);
+         margin: 2rem 0 .5rem; }
+    .lead { color: var(--soft); font-size: 1.2rem; margin: 0 0 2rem; }
+    .desc { white-space: pre-line; margin: 0 0 1rem; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1.5rem; margin: 0;
+         padding-top: 1.25rem; border-top: 1px solid var(--line); }
+    dt { font: 600 .8rem/1.9 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+    dd { margin: 0; }
+    ul.plain { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+    ul.plain li { padding: .6rem 0; border-bottom: 1px solid var(--line); }
+    .soft { color: var(--soft); font-size: .95rem; }
+    .note { color: var(--soft); font-size: .95rem; margin-top: 1.5rem; }
+    a { color: var(--accent); text-underline-offset: .15em; }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="soft"><a href="/characters.html">All characters</a></p>
+    <h1 id="name">…</h1>
+    <p class="lead" id="lead">Asking the server…</p>
+    <div id="sheet" hidden>
+      <p class="desc" id="desc"></p>
+      <dl id="facts"></dl>
+      <div id="gear-part" hidden>
+        <h2>What they wear</h2>
+        <dl id="gear"></dl>
+      </div>
+    </div>
+    <p class="note" id="note"></p>
+    <noscript><p>This page needs JavaScript to ask the server about the character.</p></noscript>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const slot = { head: 'Head', chest: 'Body', boots: 'Feet', arms: 'Arms', right_hand: 'Right hand', left_hand: 'Left hand',
+                   cloak: 'Cloak', left_ring: 'Ring', right_ring: 'Ring', neck: 'Neck', belt: 'Belt',
+                   arrows: 'Arrows', bullets: 'Bullets', bolts: 'Bolts' };
+    const classes = (c) => c.classes.map((k) => k.name + ' ' + k.level).join(' / ');
+
+    function fact(list, term, value) {
+      if (!value) return;
+      const dt = document.createElement('dt'), dd = document.createElement('dd');
+      dt.textContent = term; dd.textContent = value;
+      $(list).append(dt, dd);
+    }
+
+    function show(c) {
+      document.title = c.name + ': a character of My World';
+      $('name').textContent = c.name;
+      $('lead').textContent = [c.race, classes(c)].filter(Boolean).join(', ');
+      $('desc').textContent = c.description;
+      fact('facts', 'Level', c.level && String(c.level));
+      fact('facts', 'Gender', c.gender);
+      fact('facts', 'Deity', c.deity);
+      if (c.gear && c.gear.length) {
+        for (const g of c.gear) fact('gear', slot[g.slot] || g.slot, g.name);
+        $('gear-part').hidden = false;
+      }
+      $('sheet').hidden = false;
+    }
+
+    async function load() {
+      const name = location.pathname.split('/').pop();
+      try {
+        const reply = await fetch('/characters/' + name + '.json');
+        if (reply.status === 404) {
+          $('name').textContent = 'Not found';
+          $('lead').textContent = 'There is no page for that character.';
+          $('note').textContent = 'A character has a page here only when its player has asked for one.';
+          return;
+        }
+        if (!reply.ok) throw new Error(reply.status);
+        show(await reply.json());
+      } catch (e) {
+        $('name').textContent = 'Can’t tell right now';
+        $('lead').textContent = 'The server isn’t answering. Please look again in a few minutes.';
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
