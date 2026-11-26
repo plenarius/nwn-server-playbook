@@ -1,0 +1,17 @@
+# Reads the expiry calendar and tells the watchdog's alert channel what changed. Started by nwn-expiry.timer.
+# Chapter 16, tier 3.
+[Unit]
+Description=Check the expiry calendar, and warn ahead
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# The watchdog's user: it can read the webhook file, and its state folder holds this memory too.
+User=nwn-watchdog
+ExecStart=/usr/local/bin/nwn-expiry run /etc/nwn-expiry/expiry.list
+TimeoutStartSec=300
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nwn-watchdog
+PrivateTmp=yes

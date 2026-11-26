@@ -45,7 +45,15 @@ jobs:
       - name: Make the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" *.mod SHA256SUMS --title "$GITHUB_REF_NAME" --generate-notes
+        # A candidate (v1.4.0-rc1) is a pre-release. A final release's notes start at the last final release, so
+        # they hold everything since then, not only what came after its last candidate (chapter 16, tier 3).
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-rc* ]]; then
+            gh release create "$GITHUB_REF_NAME" *.mod SHA256SUMS --title "$GITHUB_REF_NAME" --generate-notes --prerelease
+          else
+            prev=$(gh release list -L 100 --json tagName,isPrerelease -q '[.[] | select(.isPrerelease | not) | .tagName | select(test("-rc") | not)][0] // empty')
+            gh release create "$GITHUB_REF_NAME" *.mod SHA256SUMS --title "$GITHUB_REF_NAME" --generate-notes ${prev:+--notes-start-tag "$prev"}
+          fi
 
   staging:
     needs: release
