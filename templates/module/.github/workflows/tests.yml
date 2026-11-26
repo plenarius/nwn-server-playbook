@@ -57,7 +57,7 @@ jobs:
       mode: ${{ steps.plan.outputs.mode }}
       lanes: ${{ steps.plan.outputs.lanes }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -85,7 +85,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.lanes) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/nwn-tools
         with:
@@ -123,7 +123,7 @@ jobs:
       - name: The content from GitHub's cache
         id: cache
         if: steps.content.outputs.machine == 'false'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: tests/.content
           key: nwsync-${{ steps.content.outputs.version }}
@@ -135,7 +135,7 @@ jobs:
       # Saved straight away, not at the end, so a run whose tests fail doesn't download it all again next time.
       - name: Keep the content in the cache
         if: steps.content.outputs.machine == 'false' && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: tests/.content
           key: nwsync-${{ steps.content.outputs.version }}
@@ -162,7 +162,7 @@ jobs:
 
       - name: Keep the logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-logs-lane-${{ matrix.lane }}
           path: tests/.run/
@@ -180,7 +180,7 @@ jobs:
     steps:
       - name: Gather the lanes' records
         if: needs.lane.result != 'skipped'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: test-logs-lane-*
           path: lanes
@@ -197,7 +197,7 @@ jobs:
       # What the flake report reads: kept for 30 days, so the report can look two weeks back.
       - name: Keep the flake records
         if: steps.flakes.outputs.found == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flakes
           path: flakes.jsonl
