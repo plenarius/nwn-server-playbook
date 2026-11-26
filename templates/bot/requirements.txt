@@ -6,6 +6,8 @@ aiohttp==3.14.5
     # via
     #   -r requirements.in
     #   discord-py
+aiomysql==0.3.2
+    # via -r requirements.in
 aiosignal==1.4.0
     # via aiohttp
 attrs==26.1.0
@@ -26,6 +28,8 @@ propcache==0.5.4
     # via
     #   aiohttp
     #   yarl
+pymysql==1.2.4
+    # via aiomysql
 typing-extensions==4.16.0
     # via
     #   aiohttp

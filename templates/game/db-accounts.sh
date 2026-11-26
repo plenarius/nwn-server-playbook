@@ -3,11 +3,13 @@
 #
 #   ./db-accounts.sh reader NAME FROM     make NAME, which may only read the game's tables, and only from address FROM
 #   ./db-accounts.sh queue NAME FROM      make NAME, which may only add jobs to work_queue and read that table
+#   ./db-accounts.sh bot NAME FROM        make NAME for the Discord bot's chat bridge (chapter 10, tier 3): a queue
+#                                         account that may also read chat_out
 #   ./db-accounts.sh sync [--dry-run]     bring the readers' rights in step with the tables (the timer runs this)
 #   ./db-accounts.sh show NAME            what NAME may do
 #   ./db-accounts.sh drop NAME            remove NAME
 #
-# reader and queue read the new account's password from the first line of their input, so it is never on a
+# reader, queue and bot read the new account's password from the first line of their input, so it is never on a
 # command line: at least 16 letters, digits, - or _ (openssl rand -hex 16 makes a good one).
 #
 # Run it from the game folder, as the deploy user. It uses the database administrator's password from db.env,
@@ -50,7 +52,7 @@ exists() { [ "$(echo "SELECT COUNT(*) FROM mysql.user WHERE User = '$1';" | sql)
 # Only accounts this script made: show and drop never touch the game's own account or the administrator.
 ours() {
   exists "$1" || { echo "there is no account $1" >&2; exit 1; }
-  [ "$(echo "SELECT COUNT(*) FROM mysql.user WHERE User = '$1' AND default_role IN ('game_reader', 'game_queue');" | sql)" != 0 ] ||
+  [ "$(echo "SELECT COUNT(*) FROM mysql.user WHERE User = '$1' AND default_role IN ('game_reader', 'game_queue', 'game_bot');" | sql)" != 0 ] ||
     { echo "$1 was not made by this script; leaving it alone" >&2; exit 1; }
 }
 
@@ -123,6 +125,17 @@ CREATE ROLE IF NOT EXISTS game_queue;
 GRANT SELECT, INSERT (kind, args, added_by) ON \`$schema\`.work_queue TO game_queue;
 SQL
     make_account "$2" "$3" game_queue ;;
+  bot)
+    [ $# = 3 ] || { echo "usage: ./db-accounts.sh bot NAME FROM" >&2; exit 2; }
+    check_name "$2"; check_from "$3"; read_password
+    [ "$(echo "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$schema' AND table_name IN ('work_queue', 'chat_out');" | sql)" = 2 ] ||
+      { echo "there is no work_queue or chat_out table yet: release their migrations first" >&2; exit 1; }
+    sql <<SQL
+CREATE ROLE IF NOT EXISTS game_bot;
+GRANT SELECT, INSERT (kind, args, added_by) ON \`$schema\`.work_queue TO game_bot;
+GRANT SELECT ON \`$schema\`.chat_out TO game_bot;
+SQL
+    make_account "$2" "$3" game_bot ;;
   sync)
     sync "${2:-}" ;;
   show)
@@ -138,5 +151,5 @@ SQL
     echo "SELECT CONCAT('DROP USER \`', User, '\`@\`', Host, '\`;') FROM mysql.user WHERE User = '$2';" | sql | sql
     echo "removed $2" ;;
   *)
-    echo "usage: ./db-accounts.sh reader|queue NAME FROM | sync [--dry-run] | show NAME | drop NAME" >&2; exit 2 ;;
+    echo "usage: ./db-accounts.sh reader|queue|bot NAME FROM | sync [--dry-run] | show NAME | drop NAME" >&2; exit 2 ;;
 esac
