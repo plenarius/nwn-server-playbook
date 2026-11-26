@@ -1,9 +1,9 @@
 # Chapter 12. Backups and restore
 
-**Status:** tiers 1 and 2 are written and tested. Tier 1 is a nightly backup on the machine and a copy fetched to
-your computer; tier 2, further down, sends encrypted backups to another company's storage, out of reach of a
-broken-into server, and restores them onto a fresh machine. Tier 3 (the character vault's history in git, and a
-daily watch) is not written yet.
+**Status:** tiers 1, 2 and 3 are written and tested. Tier 1 is a nightly backup on the machine and a copy fetched
+to your computer; tier 2, further down, sends encrypted backups to another company's storage, out of reach of a
+broken-into server, and restores them onto a fresh machine; tier 3 keeps every character's history in git, so one
+character can go back to any half hour, and has chapter 13's watchdog say so when either history stops moving.
 
 ## What you learn
 
@@ -478,8 +478,8 @@ sudo nwn-borg-backup --test-alert
 ```
 
 This tells you when a backup fails. It can't tell you when the backups stop altogether, say because the machine is
-gone. For that, the tidy in step 16 tells you the newest backup's age, and chapter 13's outside watch can do it
-every day.
+gone. For that, the tidy in step 17 tells you the newest backup's age, and tier 3 (step 27) has chapter 13's
+watchdog look at it every two minutes.
 
 #### 15. ADAPT. The control host, and Coolify
 
@@ -795,3 +795,294 @@ account with only the `authorized_keys` lines above), and fresh machines for the
 Not tested: a real storage box (the stand-in had the same kind of locked keys), the wind back through a storage
 box's SFTP access, `borg key import` from the exported key, a large world's backup, and the daily `crontab` or
 reminder you'll want for the tidy.
+
+## Tier 3. Every character's history, and a watch on both histories
+
+### What you learn
+
+How to keep every saved version of every character, so that when a player says "my character lost her sword this
+afternoon", you can put that one character back as she was at lunchtime, without touching anyone else. And how to
+be told when that history, or your borg backups, quietly stop.
+
+When you're done, you'll have:
+
+- the character vault copied into a **private git repository** every half hour, one commit for whatever changed;
+- **one command** that lists a character's versions, and one that puts a character back to any of them, keeping
+  the file it replaces;
+- a repository that the game host can add to and **can't rewrite**;
+- chapter 13's **watchdog** checking that the vault's history and the borg backups are still moving, and saying so
+  in the same alert channel as everything else.
+
+**Time:** about half an hour.
+
+### What Layonara does
+
+- **The vault goes to a private GitHub repository** four times a day, every six hours, as one commit each time.
+  It has been doing that since the end of 2020; the repository is about 4.5 GB now.
+- **borg backs up the vault too,** every night, with everything else on the game host (tier 2). The git history is
+  the fine-grained one, the borg archive the one nobody can rewrite.
+- **A watch on the storage machine** looks at every borg repository each morning and alerts when one is more than
+  36 hours old or 80% full. It looks only at file times and sizes, so it needs no passphrase.
+- **Every alert goes to the one Discord channel** from chapter 13.
+
+This tier commits every half hour rather than every six hours. Half an hour is what a player can lose in the
+worst case, and the test below shows the history stays small. And it has the watchdog you already run do the
+watching, from the control host, rather than a new watcher on the storage side, because a storage box can't run
+one.
+
+### The human playbook
+
+The files are in [`templates/backup`](../templates/backup):
+[`vault-history.sh`](../templates/backup/vault-history.sh) with its timer
+([`vault-history.service`](../templates/backup/vault-history.service),
+[`vault-history.timer`](../templates/backup/vault-history.timer)), and small additions to two files you already
+have: [`borg-backup.sh`](../templates/backup/borg-backup.sh) now notes the time of each good backup, and chapter
+13's [`watchdog-report.sh`](../templates/watchdog/watchdog-report.sh) and
+[`nwn-watchdog.py`](../templates/watchdog/nwn-watchdog.py) read those times.
+
+You need tier 2 of this chapter and of chapter 13. The examples use `GAME` and `CONTROL` as before, and
+`your-name/my-world-vault` for the history's repository.
+
+#### 22. GENERIC. Know what the history is, and what it costs
+
+A character file (`.bic`) is everything about a character: stats, inventory, gold, where they stood. The game
+rewrites it when the player saves, levels, logs out, and whenever your module asks it to. The nightly backup keeps
+one copy a night. The history keeps one every half hour, for as long as you like, and git stores only what changed,
+so it's far smaller than it sounds.
+
+**Size.** On the test, a month of commits every half hour, with a third of the characters changing in each one,
+grew the history to 3.7 MB beside a vault of 2.6 MB. Real saves change more of the file than the test did, and a
+real world has more characters: ours, after six years and a few thousand characters, is about 4.5 GB. GitHub is
+comfortable with that; if yours grows past a few gigabytes, start a fresh repository and keep the old one.
+
+**Privacy.** The vault's folders are named after your players' accounts, and the files hold their characters,
+their descriptions and what they carry. Treat the repository as you treat the server: **private**, with as few
+people as possible able to read it. And know one honest cost before you start: a history keeps everything. If a
+player asks you to remove their characters, removing them from the vault isn't enough; they stay in every old
+commit, and in your borg archives until those age out. Rewriting the history is possible (`git filter-repo`), but
+it's real work, and it needs the protection of step 25 lifted while you do it.
+
+#### 23. ADAPT. Make the repository and its key
+
+Change: the repository's name, and the host, if yours isn't GitHub.
+
+On GitHub, make a new **private** repository with nothing in it: no README, no licence. Any git server you can
+reach over SSH works the same way.
+
+On the game host, install the script and its timer, and make the key it pushes with. The key lives in root's
+`.ssh`, because the vault's files belong to the game's container and only root can read all of them:
+
+```sh
+scp -r templates/backup nwn@GAME:backup
+ssh nwn@GAME
+sudo apt-get install -y git rsync
+cd ~/backup
+sudo install -m 755 vault-history.sh /usr/local/sbin/nwn-vault-history
+sudo install -m 644 vault-history.service vault-history.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo ssh-keygen -q -t ed25519 -N '' -C vault-history -f /root/.ssh/vault-history
+sudo sh -c 'ssh-keyscan -t ed25519 github.com > /root/.ssh/vault-history.known_hosts'
+sudo ssh-keygen -lf /root/.ssh/vault-history.known_hosts
+sudo cat /root/.ssh/vault-history.pub
+```
+
+The second-last line prints GitHub's fingerprint. It must be the one GitHub publishes for Ed25519 on its
+"GitHub's SSH key fingerprints" page, `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU` when I wrote this.
+
+The last line is the public key. In the repository on GitHub: **Settings**, **Deploy keys**, **Add deploy key**,
+paste it, and tick **Allow write access**. A deploy key opens this one repository and nothing else in your account.
+
+#### 24. GENERIC. The first commit
+
+Still on the game host, make the history's folder a git repository that knows where to push, and run it once:
+
+```sh
+cd ~/game
+sudo git init -b main vault-history
+sudo git -C vault-history remote add origin git@github.com:your-name/my-world-vault.git
+sudo nwn-vault-history
+```
+
+It says `committed 12 file(s)` (your number of characters) and `pushed`, and the repository on GitHub shows them.
+The folder `vault-history` beside your game is a copy of the vault with its history; the live vault itself is never
+touched by git.
+
+What each run does, so you can trust it: it copies the vault into that folder, **leaving out any file the game
+changed in the last ten seconds**, because the game may be halfway through writing it (the next run takes it). It
+commits whatever changed, with a message that says how many files, and pushes. If the push fails, the commits wait
+and the next run pushes them all. After a good run it writes the time to `vault-history.ok`, which is what step 27
+watches.
+
+Then start the timer:
+
+```sh
+sudo systemctl enable --now vault-history.timer
+systemctl list-timers vault-history.timer
+```
+
+It runs on the hour and the half hour. Change `OnCalendar` in the timer file for another rhythm; ours, every six
+hours, would be `0/6:10`.
+
+#### 25. GENERIC. Make the history one that can't be rewritten
+
+The game host's key may push. Without one more setting, it could also **force-push**: replace the history with an
+empty one, or delete the branch. Someone who broke into your game host could erase every character's past with
+one command. GitHub can refuse that, for every key, with a ruleset.
+
+In the repository: **Settings**, **Rules**, **Rulesets**, **New ruleset**, **New branch ruleset**. Name it, set
+**Enforcement status** to **Active**, add the target **Include default branch**, and tick **Restrict deletions**
+and **Block force pushes**. Leave everything else as it is, and **Create**.
+
+On the test, with that ruleset, the game host's key was refused both:
+
+```
+remote: - Cannot force-push to this branch
+ ! [remote rejected] main (refusing to delete the current branch: refs/heads/main)
+```
+
+GitHub's free plan offers rulesets only on public repositories, and this one must stay private, so this step needs
+a paid plan (Pro for a personal account, Team for an organisation). If you don't have one, the borg backups of tier
+2 are the copy nobody can rewrite: they take the vault every night, and append-only means a burglar can't take
+them back. The git history is then the convenient one, and borg the safe one.
+
+#### 26. GENERIC. Put one character back
+
+First, ask the player to log out, and to stay out until you're done: the game writes the file when they leave,
+and would write over your restore.
+
+The character's path inside the vault is its account's folder and its file, as the commits show it. List its
+versions:
+
+```sh
+sudo nwn-vault-history log PLAYER01/char1.bic
+```
+
+```
+d275b31  2026-11-26 17:49 UTC  vault 2026-11-26 17:49 UTC: 1 file(s)
+133d89d  2026-11-26 17:48 UTC  vault 2026-11-26 17:48 UTC: 3 file(s)
+035067e  2026-11-26 17:48 UTC  vault 2026-11-26 17:48 UTC: 12 file(s)
+```
+
+Then put it back, either to a version from that list or to a time, which takes the last version saved before it:
+
+```sh
+sudo nwn-vault-history restore PLAYER01/char1.bic 035067e
+sudo nwn-vault-history restore PLAYER01/char1.bic "2026-11-26 12:00"
+```
+
+```
+restored PLAYER01/char1.bic as it was in 035067e (2026-11-26 17:48 UTC)
+the file it replaced: /home/nwn/game/vault-history.replaced/PLAYER01_char1.bic.20261126-174942
+the next run records the restore in the history
+```
+
+Times are UTC, like the server's clock. Nothing else in the vault is touched. The file you replaced is kept in
+`vault-history.replaced`, so a restore to the wrong time is one copy away from undone, and the restore itself
+becomes the newest version in the history at the next run. Then the player can log in.
+
+#### 27. GENERIC. Let the watchdog watch both histories
+
+A history that has quietly stopped is worse than none, because you'll trust it. The watchdog from chapter 13
+already asks the game host for a report every two minutes. With this tier's versions of the files, that report
+gains two lines, and the watchdog two checks:
+
+| Check | Fails when |
+|---|---|
+| `game host borg backup` | the last good borg backup is more than 26 hours old (`borg_hours`) |
+| `game host vault history` | the vault's history hasn't had a good run in 2 hours (`vault_hours`) |
+
+A good run means it pushed, or found nothing new and checked the repository already had everything. A quiet
+night with nobody playing is still a good run, so a quiet world doesn't wake anyone.
+
+Copy the new files into place. On the game host, the report and the backup script:
+
+```sh
+scp templates/watchdog/watchdog-report.sh nwn@GAME:game/
+scp templates/backup/borg-backup.sh nwn@GAME:backup/
+ssh nwn@GAME 'sudo install -m 755 backup/borg-backup.sh /usr/local/sbin/nwn-borg-backup && sudo nwn-borg-backup | tail -1 && game/watchdog-report.sh'
+```
+
+The report now ends with `borg` and `vault` lines, each with a time. On the control host, the watchdog itself, and
+the two new settings:
+
+```sh
+scp templates/watchdog/nwn-watchdog.py nwn@CONTROL:
+ssh nwn@CONTROL 'sudo install -m 755 nwn-watchdog.py /usr/local/bin/nwn-watchdog && rm nwn-watchdog.py && printf "borg_hours = 26\nvault_hours = 2\n" | sudo sed -i "/^backup_hours/r /dev/stdin" /etc/nwn-watchdog/watchdog.conf && sudo -u nwn-watchdog nwn-watchdog status'
+```
+
+`status` shows the two new lines with `ok`. When the history stopped on the test (I took its key away on GitHub,
+so the pushes failed), this arrived:
+
+```
+**My World watchdog**
+ALERT game host vault history: the newest is 6 minutes old, from 2026-11-26 17:49 UTC (failing since 2026-11-26 17:54 UTC)
+```
+
+That was with `vault_hours` set to a few minutes for the test; with 2, it comes about two hours after the last good
+run. When the key was back and the next run pushed the waiting commits, an "OK" followed. The borg check reads the
+same way.
+
+If your control host has a borg backup of its own (tier 2's step 15), the watchdog can read its time directly,
+with no SSH. The settings file has the check ready to switch on, at its end: `check = stamp`.
+
+#### 28. LAYONARA-ONLY. A watch on the storage side
+
+Our watch runs on our storage machine, and looks at the repositories themselves: when each last changed, and how
+full each is against its quota. It's the better watch, because it sees what arrived rather than what a server
+believes it sent, and it catches a quota filling up. But it needs a storage machine that can run a script and send
+a message, and a storage box can do neither. If your storage is a machine of your own, it's worth adding; the
+watchdog's checks here are still worth keeping beside it.
+
+### The agent playbook
+
+If you work with an AI agent, [`playbooks/12-backups-tier3.md`](../playbooks/12-backups-tier3.md) has these steps
+in a fixed shape it can follow. It never adds the deploy key or the ruleset on GitHub (those are yours), and it
+restores a character only when you've named the character and the time, and the player is logged out.
+
+### Lessons
+
+- **A history you can rewrite is a convenience, not a backup.** The key that pushes has to live on the game host,
+  so whatever can reach the game host can reach the history. That's why ours is backed by borg's append-only
+  archives, and why step 25 asks GitHub to refuse force-pushes.
+- **Never let git work in the live vault (from building this tier, 2026-11-26).** The first sketch committed
+  straight from the vault folder. Then a restore is a `git checkout` in a folder the game is writing to, and one
+  slip puts every character back. Copying first means git only ever writes into its own folder, and a restore is
+  one file, chosen by name.
+- **A file being written is not a file.** The game writes a character over a moment, and a copy taken in that
+  moment is half of one. The ten-second rule leaves such files for the next run; on the test, one was left out and
+  taken half a minute later.
+- **Watch the run, not the commits.** A quiet night has no changes and no commits. Watching for new commits would
+  wake you every quiet night; watching for good runs wakes you only when something is wrong.
+- **Six years is a lot of characters (Layonara, 2026).** Our history has grown to about 4.5 GB. It still works,
+  but cloning it takes a while, and a fresh repository every few years would have been kinder.
+
+### Tested
+
+On 2026-11-26, on two fresh Hetzner cloud servers of the smallest shared type, in the state tier 2 leaves them: a
+game host with the game, its database, tier 1's nightly backup and tier 2's borg backup, and a control host with
+Coolify 4.7.5, chapter 13's watchdog, and a borg account standing in for the storage box. Ubuntu 26.04 with git
+2.53.0 and borg 1.4.4. The history's repository was a throwaway private repository on GitHub. Alerts went to the
+same stand-in for Discord that chapter 13's tier 2 used, a small receiver on the control host that checks every
+message the way Discord does.
+
+The vault held 12 real character files in 6 account folders. A small test script played the part of the players,
+rewriting a few bytes inside a few characters the way a save does.
+
+- the whole install twice, the second time from nothing after the Roll back, following the agent playbook command by
+  command, into a second throwaway repository: steps 23 and 24, the key, GitHub's fingerprint, the first commit
+  and push, and the timer, which then ran on its own on the half hour;
+- several runs with characters changing between them: one commit each, naming the changed files, pushed;
+- a character changed a moment before a run: left out, and committed by the next run;
+- **a restore** of one character, by time and by commit: the file identical by SHA-256 to the version first
+  committed, the replaced file kept, the restore committed by the next run; a time before any version, a character
+  that isn't in that commit, and a path outside the vault were refused;
+- **the history stopping**: the deploy key removed on GitHub, so the runs committed but couldn't push; with
+  `vault_hours` shortened for the test, one alert; with the key back, the next run pushed the waiting commits and
+  an "OK" followed. The same for borg, with `borg_hours` shortened: one alert, then an "OK" after the next backup;
+- the ruleset of step 25: the game host's own key refused a force-push and a branch deletion;
+- the size: a month of half-hourly commits, simulated on my computer with the same 12 characters, a third of them
+  changing each time: 18 MB before git packed it, 3.7 MB after (`git gc`), for 2.6 MB of characters.
+
+Not tested: a real player's character restored and then played (no game client logged in; the file was compared
+by checksum instead), a large world's history, removing a player's characters from the history with `git
+filter-repo`, and a git server other than GitHub.

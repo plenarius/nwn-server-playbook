@@ -74,3 +74,7 @@ rc=$?
 [ $rc -ge 2 ] && fail "borg create ended with exit code $rc; see journalctl -u borg-backup.service"
 [ $rc = 1 ] && echo "borg finished with a warning (exit code 1); the archive was made"
 echo "$(date -u +%FT%TZ) backup made: $(borg list --lock-wait 600 --last 1 --format '{archive}')"
+# The time of the last good backup, for chapter 13's watchdog (tier 3): readable by anyone, it says nothing else.
+mkdir -p -m 755 /var/lib/nwn-borg
+date -u +%Y%m%d-%H%M%S > /var/lib/nwn-borg/last-archive.new && chmod 644 /var/lib/nwn-borg/last-archive.new &&
+  mv /var/lib/nwn-borg/last-archive.new /var/lib/nwn-borg/last-archive

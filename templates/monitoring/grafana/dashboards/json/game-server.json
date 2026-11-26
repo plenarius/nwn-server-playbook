@@ -1,0 +1,602 @@
+{
+ "uid": "nwn-game",
+ "title": "Game server",
+ "tags": [
+  "nwn"
+ ],
+ "timezone": "utc",
+ "schemaVersion": 39,
+ "version": 1,
+ "refresh": "30s",
+ "time": {
+  "from": "now-3h",
+  "to": "now"
+ },
+ "editable": false,
+ "templating": {
+  "list": [
+   {
+    "type": "textbox",
+    "name": "search",
+    "label": "Search the log",
+    "query": "",
+    "current": {
+     "value": "",
+     "text": ""
+    }
+   }
+  ]
+ },
+ "panels": [
+  {
+   "type": "stat",
+   "title": "Tick rate, worst second",
+   "description": "The fewest game loops the server managed in one second, in the time shown. A healthy server runs dozens to hundreds; single digits feel like lag.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "nwn-influxdb"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 6,
+    "h": 4
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "noValue": "0",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 10
+       },
+       {
+        "color": "green",
+        "value": 30
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT min(\"Count\") FROM \"NWNX_Profiler.GameTickRate\" WHERE $timeFilter"
+    }
+   ],
+   "id": 1
+  },
+  {
+   "type": "stat",
+   "title": "Long stalls",
+   "description": "Times the main loop stopped for a whole ThreadWatchdog period (15 s by default). Anything above 0 is worth a look.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "nwn-influxdb"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 0,
+    "w": 6,
+    "h": 4
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "noValue": "0",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT sum(\"Count\") FROM \"NWNX_ThreadWatchdog.LongStall\" WHERE $timeFilter"
+    }
+   ],
+   "id": 2
+  },
+  {
+   "type": "stat",
+   "title": "Database queries",
+   "description": "Queries the module made through NWNX_SQL in the time shown.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "nwn-influxdb"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 6,
+    "h": 4
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "noValue": "0",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT count(\"ns\") FROM \"NWNX_SQL.SQLQueries\" WHERE $timeFilter"
+    }
+   ],
+   "id": 3
+  },
+  {
+   "type": "stat",
+   "title": "Slowest query",
+   "description": "The slowest single query; the game waits for every one of them.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "nwn-influxdb"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 0,
+    "w": 6,
+    "h": 4
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "noValue": "0",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 50
+       },
+       {
+        "color": "red",
+        "value": 250
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT max(\"ns\") / 1000000 FROM \"NWNX_SQL.SQLQueries\" WHERE $timeFilter"
+    }
+   ],
+   "id": 4
+  },
+  {
+   "type": "timeseries",
+   "title": "Tick rate",
+   "description": "Game loops per second. The worst second matters more than the average: that's the lag players feel.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "nwn-influxdb"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10,
+      "spanNulls": false,
+      "stacking": {
+       "mode": "none"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT min(\"Count\") FROM \"NWNX_Profiler.GameTickRate\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+     "alias": "worst second"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT mean(\"Count\") FROM \"NWNX_Profiler.GameTickRate\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+     "alias": "average"
+    }
+   ],
+   "id": 5
+  },
+  {
+   "type": "timeseries",
+   "title": "Script time, top 10",
+   "description": "Time the main loop spent in each script, per interval: where the game's time goes.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "nwn-influxdb"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 60,
+      "spanNulls": false,
+      "stacking": {
+       "mode": "normal"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT sum(\"ns\") / 1000000 FROM \"NWNX_Profiler.TimingEvent\" WHERE $timeFilter AND \"EventName\" = 'RunScript' GROUP BY time($__interval), \"Script\" fill(none) SLIMIT 10",
+     "alias": "$tag_Script"
+    }
+   ],
+   "id": 6
+  },
+  {
+   "type": "timeseries",
+   "title": "Network messages",
+   "description": "Messages between the server and the players' games.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "nwn-influxdb"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 12,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10,
+      "spanNulls": false,
+      "stacking": {
+       "mode": "none"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT sum(\"Count\") FROM \"NWNX_Profiler.NetworkMessage\" WHERE $timeFilter AND \"Type\" = 'C' GROUP BY time($__interval) fill(0)",
+     "alias": "sent to players"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT sum(\"Count\") FROM \"NWNX_Profiler.NetworkMessage\" WHERE $timeFilter AND \"Type\" = 'S' GROUP BY time($__interval) fill(0)",
+     "alias": "received from players"
+    }
+   ],
+   "id": 7
+  },
+  {
+   "type": "timeseries",
+   "title": "Database query time",
+   "description": "How long the module's queries take, as NWNX_SQL measures them.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "nwn-influxdb"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 12,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10,
+      "spanNulls": false,
+      "stacking": {
+       "mode": "none"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT percentile(\"ns\", 95) / 1000000 FROM \"NWNX_SQL.SQLQueries\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+     "alias": "95th percentile"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT max(\"ns\") / 1000000 FROM \"NWNX_SQL.SQLQueries\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+     "alias": "slowest"
+    }
+   ],
+   "id": 8
+  },
+  {
+   "type": "timeseries",
+   "title": "Tick rate, per minute (kept 180 days)",
+   "description": "The same numbers from the per-minute summary, which is kept far longer than the raw data (14 days). Use it for months.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "nwn-influxdb"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 20,
+    "w": 24,
+    "h": 7
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10,
+      "spanNulls": false,
+      "stacking": {
+       "mode": "none"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT min(\"min\") FROM \"rollup_1m\".\"tickrate\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+     "alias": "worst second"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "nwn-influxdb"
+     },
+     "rawQuery": true,
+     "resultFormat": "time_series",
+     "query": "SELECT mean(\"mean\") FROM \"rollup_1m\".\"tickrate\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+     "alias": "average"
+    }
+   ],
+   "interval": "1m",
+   "id": 9
+  },
+  {
+   "type": "logs",
+   "title": "Game log",
+   "description": "The game server's container log: NWNX and the game's own log. Type in the search box to filter.",
+   "datasource": {
+    "type": "loki",
+    "uid": "nwn-loki"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 27,
+    "w": 24,
+    "h": 12
+   },
+   "options": {
+    "showTime": true,
+    "wrapLogMessage": true,
+    "sortOrder": "Descending",
+    "enableLogDetails": true
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "loki",
+      "uid": "nwn-loki"
+     },
+     "expr": "{service=\"nwserver\"} |~ \"(?i)$search\"",
+     "queryType": "range"
+    }
+   ],
+   "id": 10
+  }
+ ]
+}

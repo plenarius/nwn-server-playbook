@@ -1,0 +1,65 @@
+# The monitoring stack on the control host: the game's numbers (InfluxDB), its logs (Loki), request traces
+# (Tempo) and the dashboards (Grafana). Chapter 13, tier 3. Start it with "docker compose up -d" in this folder.
+#
+# Nothing here is on a public address. The three doors the game host uses are on the private network only
+# (MONITOR_ADDRESS, 10.77.0.1 by default), and Grafana is on 127.0.0.1: you reach it through an SSH tunnel.
+# Docker's published ports go around the firewall, so the address in front of each port is what keeps it private.
+name: monitoring
+services:
+  influxdb:
+    image: influxdb:1.13.2
+    volumes:
+      - ./influxdb.conf:/etc/influxdb/influxdb.conf:ro
+      - ./init.iql:/docker-entrypoint-initdb.d/init.iql:ro   # read once, the first time, when data/influxdb is empty
+      - ./data/influxdb:/var/lib/influxdb
+    ports:
+      - "${MONITOR_ADDRESS:-10.77.0.1}:8089:8089/udp"     # NWNX's Metrics_InfluxDB plugin
+    mem_limit: 768m
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.7.9
+    command: -config.file=/etc/loki/loki.yaml
+    user: "10001:10001"
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - ./data/loki:/loki
+    ports:
+      - "${MONITOR_ADDRESS:-10.77.0.1}:3100:3100"          # the game host's log shipper
+    mem_limit: 512m
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:3.1.1
+    command: -config.file=/etc/tempo.yaml
+    user: "10001:10001"
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - ./data/tempo:/var/tempo
+    ports:
+      - "${MONITOR_ADDRESS:-10.77.0.1}:4318:4318"          # OTLP over HTTP, from services that send traces
+    mem_limit: 512m
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    user: "472:472"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-admin-password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Grafana fetches a set of extra plugins on its first start, over half a gigabyte; this needs none of them.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ./grafana:/etc/grafana/provisioning:ro                # datasources, dashboards and the alert, from git
+      - ./secrets:/run/secrets:ro                             # the admin password and the alert webhook
+      - ./data/grafana:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"                                 # reach it with: ssh -L 3000:localhost:3000 ...
+    mem_limit: 512m
+    restart: unless-stopped
+    depends_on: [influxdb, loki, tempo]

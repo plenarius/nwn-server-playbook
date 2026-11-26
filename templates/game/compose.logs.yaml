@@ -1,0 +1,19 @@
+# Adds the log shipper (Grafana Alloy), which sends every container's log on this machine to Loki on the control
+# host (chapter 13, tier 3). Used together with the other Compose files, through the COMPOSE_FILE line in .env.
+services:
+  alloy:
+    image: grafana/alloy:v1.21.3
+    command: run --disable-reporting --storage.path=/var/lib/alloy/data --server.http.listen-addr=127.0.0.1:12345 /etc/alloy/logs.alloy
+    environment:
+      LOKI_URL: ${LOKI_URL:-http://10.77.0.1:3100/loki/api/v1/push}
+      LOG_HOST: ${LOG_HOST:-game}
+    volumes:
+      - ./logs.alloy:/etc/alloy/logs.alloy:ro
+      # Alloy asks Docker which containers there are, and reads their log files. Read-only here, but Docker's
+      # socket is still powerful: this container is as trusted as the machine.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./alloy-data:/var/lib/alloy/data                     # where it remembers how far it has read
+    network_mode: host                                       # so it reaches the private network like the host does
+    mem_limit: 256m
+    restart: unless-stopped

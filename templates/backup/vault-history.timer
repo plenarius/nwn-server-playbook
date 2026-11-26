@@ -1,0 +1,12 @@
+# Starts vault-history.service every half hour. Change OnCalendar for another interval: */15 for every quarter hour,
+# 0/6:10 for four times a day.
+[Unit]
+Description=The character vault's history, every 30 minutes (chapter 12, tier 3)
+
+[Timer]
+OnCalendar=*:00/30
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target
