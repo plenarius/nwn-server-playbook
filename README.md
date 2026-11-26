@@ -31,6 +31,7 @@ The tiers are cumulative. Stop at the one that fits; you lose nothing by stoppin
 | 11 | A website | [chapter](chapters/11-website.md) | [tier 1](playbooks/11-website.md), [tier 2](playbooks/11-website-tier2.md) | Tier 1 and tier 2's move to the control host written and tested; the rest of tier 2 and tier 3 to come |
 | 12 | Backups and restore | [chapter](chapters/12-backups.md) | [tier 1](playbooks/12-backups.md), [tier 2](playbooks/12-backups-tier2.md) | Tiers 1 and 2 written and tested (off-site encrypted borg, append-only, restore drills for the game and Coolify); tier 3 to come |
 | 13 | Monitoring and alerting | | | Tier 1 is covered by chapter 4 (the health check); not written yet |
+| 14 | A dev server | [chapter](chapters/14-dev-server.md) | [tier 2](playbooks/14-dev-server-tier2.md) | Tier 1 is "skip"; tier 2 written and tested (optional: a dev server on the control host, pull request builds with rollback, a scrubbed copy of the live database); tier 3 to come |
 | 16 | Day to day: releasing | [chapter](chapters/16-releasing.md) | [playbook](playbooks/16-releasing.md) | Tier 1 written and tested; tiers 2 and 3 to come |
 
 Every chapter has the same five parts: what you learn, what Layonara does, the playbook for people, the playbook
