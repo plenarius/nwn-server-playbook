@@ -1,0 +1,17 @@
+# The characters that have a page on this website (chapter 11, tier 3). Nothing else does.
+#
+# A character is listed only when its player asked for it, and taken off as soon as they ask. A line is:
+#
+#   page-name   vault-folder   file   [gear]
+#
+#   page-name     the address of the page, /characters/page-name: lowercase letters, digits and dashes
+#   vault-folder  the player's folder in the server vault: their public CD key, or their player name if your
+#                 server names folders that way (a space in it is written %20)
+#   file          the character's file in that folder, without .bic
+#   gear          only if the player also wants what the character wears shown
+#
+# This file never reaches a browser: the vault folder is the player's CD key, and stays between you and them.
+# Keep the site's repository private.
+#
+# For example:
+# aria-brightwater   QR7KX2PL   ariabrightwater   gear

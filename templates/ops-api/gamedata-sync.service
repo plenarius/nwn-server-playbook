@@ -1,0 +1,14 @@
+# Copies the game's files for the operations API's game data routes (chapter 9, tier 3). Install with:
+#   sudo install -m 644 gamedata-sync.service gamedata-sync.timer /etc/systemd/system/
+# and change User= and the path if your deploy user isn't nwn.
+[Unit]
+Description=Copy the game's files for the operations API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nwn
+ExecStart=/home/nwn/ops-api/gamedata-sync.sh
+Nice=10
+IOSchedulingClass=idle

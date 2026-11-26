@@ -23,6 +23,12 @@ services:
       SSH_SUDO: ${SSH_SUDO:-true}
       GAME_DIR: ${GAME_DIR:-/home/nwn/game}
       NWNX_IMAGE: ${NWNX_IMAGE}
+      # Game data for a website (chapter 9, tier 3): off until GAME_NWN_ROOT is set. The haks and the custom talk
+      # table are found from the module's own list.
+      GAME_NWN_ROOT: ${GAME_NWN_ROOT:-}
+      GAME_MODULE_FILE: ${GAME_MODULE_FILE:-}
+      GAME_HAK_DIR: ${GAME_HAK_DIR:-}
+      GAME_TLK_DIR: ${GAME_TLK_DIR:-}
     ports:
       # Only on the control host's private address. The API can stop your game, so it never goes on a public one.
       - "${OPS_API_BIND:-10.77.0.1}:8100:8100"
@@ -31,4 +37,7 @@ services:
       # user inside the container), mode 600 and 644.
       - /home/nwn/ops-api/ssh/id_ed25519:/data/ssh/id_ed25519:ro
       - /home/nwn/ops-api/ssh/known_hosts:/data/ssh/known_hosts:ro
+      # Chapter 9, tier 3: the API's copy of the game's files, made by gamedata-sync.sh. Make the folder first
+      # (mkdir -p ~/ops-api/gamedata), then take the # off the next line.
+      # - /home/nwn/ops-api/gamedata:/data/game:ro
     restart: unless-stopped
