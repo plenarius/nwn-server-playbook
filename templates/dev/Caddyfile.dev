@@ -1,0 +1,9 @@
+# The dev game's download address (chapter 14, tier 3): the dev folder first, the live one for the rest.
+:80 {
+	root * /srv
+	try_files /dev{path} /live{path}
+	file_server
+	# "latest" names the dev server's newest content, and changes with every load.
+	@latest path /latest
+	header @latest Cache-Control "no-store"
+}

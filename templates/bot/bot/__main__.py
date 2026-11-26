@@ -13,6 +13,7 @@ from .bridge import Bridge
 from .changelog import Changelog
 from .controls import DashboardView, add_commands
 from .dashboard import Dashboard
+from .dev import add_dev_commands
 from .ops_api import OpsApi
 from .reports import GitHub, Reports, Store, add_report_command
 from .roster import Roster
@@ -62,6 +63,8 @@ class Bot(discord.Client):
             add_commands(self)
             if self.reports:
                 add_report_command(self)
+            if self.s.dev_role_id:
+                add_dev_commands(self)
             guild = discord.Object(id=self.s.guild_id)
             self.tree.copy_global_to(guild=guild)
             if self.s.sync_commands:

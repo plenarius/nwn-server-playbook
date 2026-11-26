@@ -1,7 +1,6 @@
 # Chapter 14. A dev server
 
-**Status:** tier 2 is written and tested. Tier 1 doesn't need a dev server. Tier 3 (loading a build from Discord, a
-dev server with custom content of its own) is not written yet.
+**Status:** tiers 2 and 3 are written and tested. Tier 1 doesn't need a dev server.
 
 A **dev server** is a game of its own, away from the live one, where builders and scripters try things: a pull
 request's module before anyone has reviewed it, a script half-written, an area that might not work yet. It isn't
@@ -451,3 +450,342 @@ The Coolify service was made through Coolify's API, which does what those dashbo
 client connecting (the status query answered instead), a module with haks on the dev server, and a large database
 (the throwaway database keeps everything in memory, so a dump bigger than about a third of the control host's memory
 needs a machine with more).
+
+## Tier 3. Loading from chat, and custom content of its own
+
+### What you learn
+
+How to let your builders load the dev server from Discord, without giving the bot any key to it, and how to give
+the dev server custom content of its own: a builder's new hak, on the dev server only, with everything else still
+coming from what your players download. And how to see, at a glance, which commit and which content the dev server
+is running.
+
+Tier 2 already does the hard parts: loading a pull request's build, taking it back, a safe copy of the world. This
+tier adds three small things on top, each worth it once several people build at once:
+
+- **`/dev load 12` in Discord.** The bot asks the operations API (chapter 9), the API starts a workflow in your
+  module's repository, and the workflow loads the build with tier 2's own `load-build.sh`. When it's done, the bot
+  says so in the channel, with one line on what the dev server now runs.
+- **A dev download address.** A second NWSync address serves the dev server's new files and falls back to the live
+  download folder for everything else, so a builder can try a new hak, or a changed one, without touching what your
+  players download.
+- **A status line,** the same one in Discord, in the API for a status page, and on the dev server itself: the build,
+  its commit, the content version, the builders' haks, and whether the game is healthy.
+
+When you're done, you'll have:
+
+- `/dev load`, `/dev main`, `/dev rollback` and `/dev status` in your bot, for a builders' role;
+- the operations API answering `POST /api/v1/dev/load` (team key) and `GET /api/v1/dev/status` (read key);
+- a `Dev load` workflow in your module's repository, which only ever runs from `main`;
+- `load-build.sh hak myarea.hak` and `load-build.sh hak-remove myarea` for builders;
+- a `dev-downloads` service beside the dev game, on a name of its own;
+- the live game, its haks and its download folder untouched by all of it.
+
+**Time:** about an hour. On the test, a load from the bot's command to "Loaded." took 22 to 29 seconds, and a new
+hak about 25.
+
+You need this chapter's tier 2, chapter 7's tier 2 (content built and served from the control host, which is where
+the live haks and the live download folder come from), chapter 9's operations API, and chapter 10's bot.
+
+### What Layonara does
+
+- **Builders load the dev server from Discord.** `/dev load` with a pull request's number asks our operations API to
+  start a workflow in the module's repository, which builds that pull request and delivers it through the dev
+  server's forced-command key. `/dev rollback` puts the one before back. The API never reaches the dev server
+  itself, and refuses a second load while one is running.
+- **A status file.** After each load, and every five minutes, the dev server writes what it runs into a small JSON
+  file that the operations API reads, and the bot and our site show it.
+- **A second NWSync host for the dev server.** An nginx that serves the dev server's own files first and falls back
+  to the live download folder, so the dev server can hand out haks players don't have yet.
+- **Builders can claim the dev server** for an hour, so two people don't load over each other, and a Landscaper
+  builder can send an area straight to it for a test. Both are ours only, below.
+
+### The human playbook
+
+The examples use `CONTROL` for the control host's public address, `10.77.0.1` for its private one, `nwn` as the
+deploy user, and `you/mymodule` for your module's repository. The new files are in
+[`templates/dev`](../templates/dev) (`dev-content.sh`, `Caddyfile.dev`, `dev-load.yml`, and new parts of `dev.sh`,
+`dev.yaml` and `load-build.sh`), in [`templates/bot`](../templates/bot) (`bot/dev.py`), and in the operations API
+itself.
+
+#### 12. GENERIC. Know the two paths
+
+| What | Path |
+|---|---|
+| A load from chat | `/dev load 12` → bot → `POST /api/v1/dev/load` → the API starts `dev-load.yml` → the workflow fetches PR 12's compile check module → `dev.sh` on the control host |
+| What it runs | `dev.sh` writes `~/dev/status/status.json` → the API reads it (mounted read-only) → `GET /api/v1/dev/status` → the bot's line |
+| A new hak | `load-build.sh hak myarea.hak` → `dev.sh` → `dev-content.sh` → the dev game's haks and the dev download folder → restart |
+| A player's download from dev | the dev game advertises the dev address → `dev-downloads` serves `~/dev/nwsync` first, the live `~/nwsync` for the rest |
+
+Two things stay true through all of it, and they're why it's built this way:
+
+- **Nothing new can reach the dev server.** The bot talks only to the API, the API only to GitHub, and the workflow
+  uses a key bound to tier 2's `dev.sh`, like any builder's. A stolen bot token can start a load of one of your own
+  pull requests, and nothing else.
+- **Nothing here writes to anything live.** The dev content reads the live haks and the live download folder and
+  writes only into `~/dev`. On the test, the live download folder had the same checksum, file for file, before and
+  after every load, hak and rollback of the test.
+
+#### 13. ADAPT. The dev server's new parts
+
+Change: the paths, if your deploy user isn't `nwn`; the address, to a name of your own.
+
+On your computer, from this guide's folder:
+
+```sh
+ssh nwn@CONTROL 'mkdir -p ~/dev/home/hak ~/dev/home/tlk ~/dev/nwsync ~/dev/content/hak ~/dev/status'
+scp -p templates/dev/dev.sh templates/dev/dev-content.sh templates/dev/Caddyfile.dev nwn@CONTROL:dev/
+```
+
+The folders matter as in tier 2: one Docker makes for you belongs to root. `~/dev/nwsync` and the live `~/nwsync`
+must be on the same disk (they are, both in `/home/nwn`), because the dev content links to the live files instead of
+copying them.
+
+In Coolify, open the `dev` service, **Edit Compose File**, and paste the new
+[`templates/dev/dev.yaml`](../templates/dev/dev.yaml). It adds `NWN_NWSYNCURL` to the dev game and a second service,
+`dev-downloads`. In **Environment variables** add:
+
+```
+NWN_NWSYNCURL=https://dl-dev.example.org
+```
+
+and give `dev-downloads` that same name as its domain (the service's settings, **Domains**), with an address record
+for it pointing at the control host (chapter 2). Then **Deploy**. A minute later:
+
+```sh
+curl -s https://dl-dev.example.org/latest; echo
+curl -s https://nwsync.example.org/latest; echo
+```
+
+show the same version: the dev address has nothing of its own yet, so everything, `latest` too, comes from live.
+
+Use a name of its own, never your live download name. `dev-content.sh` refuses to run if the two are the same, as
+your players' games would otherwise be offered dev content.
+
+#### 14. GENERIC. A builder's new hak
+
+From a builder's computer, with tier 2's key:
+
+```sh
+templates/dev/load-build.sh hak myarea.hak
+```
+
+```
+received myarea.hak: 225 bytes, sha256 48806f16...
+dev content a5f67333db8d4f76...: myarea, 0 new files, the rest from live a5f67333db8d
+dev server is healthy with myarea.hak
+```
+
+"0 new files" is right here: the module on the dev server doesn't list `myarea` yet, so nobody would download it.
+Load the pull request that adds it to the module's hak list:
+
+```sh
+templates/dev/load-build.sh pr 12
+```
+
+```
+received pr-12-c8d5691: 39266 bytes, sha256 5d55fb62...
+dev content b73031e6ef5f994e...: myarea, 1 new files, the rest from live a5f67333db8d
+dev server is healthy with pr-12-c8d5691
+```
+
+What happened underneath, in `dev-content.sh`:
+
+1. The dev game's `home/hak` gets the live build's haks with the builders' on top: a builder's `myarea.hak` is
+   added, and a builder's own `my_first_hak.hak` would replace the live one, on the dev server only.
+2. NWSync's tool writes a version for the dev server's module into a scratch folder that already holds every live
+   file as a **hard link** (a second name for the same file on disk, which costs no space and no copying). The tool
+   skips every file it finds, so it writes only what is new.
+3. The new files, the ones with a single name, go to `~/dev/nwsync`. Nothing else is kept.
+4. The new version is fetched from the dev address and checked file by file, the way a player's game would, and
+   only then does the dev `latest` move. The dev game restarts and offers it.
+
+The address serves `~/dev/nwsync` first and the live folder for the rest. On the test, the new file was there on the
+dev address and missing on the live one, an old file was on both, and the dev game's log said
+`We're now advertising b73031e6...`.
+
+If a module names a hak that nobody has, the load is refused, and the dev server keeps the build it had:
+
+```
+the dev content for pr-12-c8d5691 could not be made, so it is not loaded
+```
+
+That's what you'd see loading the pull request before its hak. Send the hak, then load again. When you're done:
+
+```sh
+templates/dev/load-build.sh hak-remove myarea
+```
+
+takes the builder's hak off, and a replaced live hak is the live one again. The dev download folder only grows; when
+it gets big, `rm -rf ~/dev/nwsync/*` on the control host and load again, and only what is still needed comes back.
+
+#### 15. GENERIC. The workflow that loads
+
+Copy two files into your module's repository:
+
+```sh
+cp templates/dev/load-build.sh ~/mymodule/tools/
+cp templates/dev/dev-load.yml ~/mymodule/.github/workflows/
+```
+
+Make a key for it, the way a builder does in tier 2, step 5, and add its public half to the control host with the
+same `dev.sh` forced command. Then in the repository's **Settings**, **Secrets and variables**, **Actions**:
+
+- secret `DEV_KEY`: the private half;
+- variable `DEV_CONTROL`: `nwn@CONTROL`;
+- variable `DEV_HOST_KEY`: the control host's key, the line `ssh-keyscan -t ed25519 CONTROL` prints. Compare its
+  fingerprint with `ssh nwn@CONTROL 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'` first.
+
+Try it by hand once, from the **Actions** tab: **Dev load**, **Run workflow**, `main`. The run's summary ends with
+`load-build.sh status`.
+
+Two rules are in the workflow, not in your settings. It always runs from `main`, so a pull request's own code never
+runs with the dev server's key: it only fetches the module that pull request's compile check built. And it refuses a
+pull request from a fork. Someone else's code is still worth reading first, as in tier 2; load those by hand.
+
+#### 16. ADAPT. The operations API
+
+Change: the repository's name.
+
+The operations API needs a version with the dev routes, and its GitHub token needs **Actions: Read and write** on
+the module's repository (fine-grained tokens can be edited; add the permission to chapter 9's token). In the
+API's service in Coolify, take the `#` off the dev status line in the compose file
+([`templates/ops-api/coolify.yaml`](../templates/ops-api/coolify.yaml)):
+
+```yaml
+      - /home/nwn/dev/status:/dev-status:ro
+```
+
+and set:
+
+```
+DEV_REPO=you/mymodule
+DEV_STATUS_FILE=/dev-status/status.json
+```
+
+Then deploy it, and on the control host:
+
+```sh
+curl -s -H "Authorization: Bearer $(cat ~/ops-api/keys/read)" 10.77.0.1:8100/api/v1/dev/status | python3 -m json.tool
+```
+
+```
+{
+    "loaded": {
+        "label": "main-47624c8",
+        "commit": "47624c8",
+        "content": "a5f67333db8d4f7655fcbff94121e8d3e4d497d5",
+        "dev_haks": [],
+        "health": "healthy",
+        ...
+    },
+    "last_run": { "title": "dev load main for Mira", "status": "completed", "conclusion": "success", ... }
+}
+```
+
+That route takes the read key, so a status page on your website can show it. Loading takes the team key: the read
+key gets `403`, and anything but `pr-<number>`, `main` or `rollback` gets `422`. While a load runs, a second one gets
+`409` with a link to the first. The file is written at every load, rollback and hak; to keep its health fresh in
+between, add a line to the deploy user's crontab on the control host (`crontab -e`):
+
+```
+*/5 * * * * $HOME/dev/dev.sh status > /dev/null 2>&1
+```
+
+#### 17. ADAPT. The bot
+
+Change: the role.
+
+Bring in the new code (chapter 10, step 19: `bot/dev.py` and the small changes to `ops_api.py`, `settings.py` and
+`__main__.py`, with `tests/test_dev.py`), make a **Builders** role in Discord, and in the bot's settings in Coolify
+add:
+
+```
+DEV_ROLE_ID=the role's id
+```
+
+Deploy. `/dev` now appears with four commands. Members with the role or the staff role can load; anyone can ask
+`/dev status`. In a builders' channel:
+
+```
+/dev load pr:12
+```
+
+```
+Loading pr-12 onto the dev server for Mira. I'll say here when it's done (a minute or two).
+Loaded. Dev runs pr-12-c8d5691 (commit c8d5691), content b73031e6ef5f with dev haks myarea, healthy.
+Last load: dev load pr-12 for Mira, success (https://github.com/you/mymodule/actions/runs/...)
+```
+
+A failed load says so, and that the dev server kept what it had. The bot waits 14 minutes at most, because Discord
+lets it answer a command for 15; the workflow gives up after 12.
+
+#### 18. GENERIC. Day to day
+
+- **Try a change:** `/dev load pr:42`. **What's on there:** `/dev status`. **Put it back:** `/dev rollback`.
+- **Try a new hak:** send it with `load-build.sh hak`, then load the pull request that lists it. When the pull
+  request is merged and chapter 7 releases the hak, take yours off with `hak-remove`: the live one is now the same.
+- **Who's using it:** say in the builders' channel what you've loaded. The bot's answers are in the channel, so
+  everyone sees the last load anyway.
+
+#### 19. LAYONARA-ONLY. Claims, and the Landscaper
+
+Two more parts we run, described, not built here:
+
+- **A claim.** With a dozen builders, "say it in the channel" stops being enough, so a builder can claim the dev
+  server for an hour (four at most), and loads by anyone else are refused until it's released or expires. It's one
+  small file in the API and a timer. With a handful of builders, the channel works and is one less thing to clear
+  when someone forgets.
+- **A test straight from the Landscaper,** our area painter, which packs the areas a builder is painting into a hak
+  and a module and sends both to the dev server. It's this tier's `hak` and `load` from another program, and is tied
+  to our tools.
+
+### The agent playbook
+
+[`playbooks/14-dev-server-tier3.md`](../playbooks/14-dev-server-tier3.md) has these steps in the fixed shape. It
+stops and asks before it adds a key, before it changes the API's token or settings, and before it moves a name.
+
+### Lessons
+
+- **Give chat a request, not a key.** The bot can ask for a load of one of your own pull requests and nothing more.
+  The power stays with a forced-command key that only ever runs `dev.sh`, held by a workflow that runs from `main`.
+- **Overlay, don't copy.** The dev content is the live content plus a few files, so it stores only those few: hard
+  links in a scratch folder let the NWSync tool see everything and write only what's new, and the address falls back
+  to live for the rest.
+- **Check before you move `latest`,** for the dev server as for players: each dev version is fetched from the dev
+  address and checked file by file first.
+- **A failed first load must leave nothing behind.** On the test, the first load failed (the new script wasn't
+  executable) and the status still named its build. Now a refused load puts back the build before, or nothing at all.
+- **One line, everywhere.** The same status line, built from the same file, in Discord, in the API and on the
+  control host, means nobody argues about what's loaded.
+
+### Tested
+
+On 2026-11-26, with Coolify 4.7.5, `nwnxee/unified:ed79330`, neverwinter.nim 2.3.2 in chapter 7's builder image,
+Caddy 2.11.9, Docker 29.10.1 and Ubuntu 26.04 on two cx23s in tier 2's state (a game host with the live game and its
+nightly backup; a control host with Coolify, chapter 7's downloads service at a test name and this chapter's tier 2
+dev server, joined by WireGuard), a private throwaway module repository with chapter 6's compile check and this
+tier's workflow, and the operations API built from its dev branch:
+
+- the bot's `/dev load`, `/dev main` and `/dev rollback` commands run with a stand-in for Discord's interaction
+  (no Discord bot was connected) against the real operations API, which started the real workflow, which loaded the
+  dev server: main, then a pull request adding a hak and changing a log line (the new line in the dev game's log),
+  then a rollback; each answer naming the right build, commit and content; 22 to 29 seconds each;
+- a second load while one ran refused with `409`; the read key refused with `403`; a bad target with `422`; the
+  pull request before its hak refused, the dev server keeping main;
+- the dev download address: before any dev content, the live `latest`; with a builder's new hak, a new version
+  checked over HTTPS, one new file served from the dev folder and absent from the live address, older files served
+  from live; the dev game advertising the dev version; a builder's hak replacing a live hak of the same name, on the
+  dev server only, and the live one back after `hak-remove`;
+- `dev.sh` refusing a file that isn't a hak and a hak name with `../`;
+- `GET /api/v1/dev/status` through the read key, the status file mounted read-only;
+- live untouched: the live download folder's checksum, over every file, the same before and after; the live game's
+  container start time and health the same;
+- the bot's and the API's tests (`tests/test_dev.py` in both).
+
+The operations API ran with `docker run`, with the same settings and mount as `coolify.yaml`, not as a Coolify
+service, and chapter 7's live content was staged with `publish.sh` and its `latest` moved by hand, as `promote.sh`
+would, without a release on the game host. Not tested: a real Discord server, a pull request from a fork (the
+workflow's refusal is one `gh` check), a game client downloading from the dev address (the same check a player's
+game makes did instead), and a large content folder (the hard links cost no space, but the scratch folder still
+makes one link per live file each time, which takes a while with hundreds of thousands of files).

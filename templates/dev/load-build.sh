@@ -5,6 +5,8 @@
 #   load-build.sh main       the module the compile check built for the newest commit on main
 #   load-build.sh rollback   the build that was on the dev server before
 #   load-build.sh status     what is on the dev server now
+#   load-build.sh hak myarea.hak       tier 3: a hak of yours, on the dev server only, over the live one of that name
+#   load-build.sh hak-remove myarea    tier 3: take it off again
 #
 # Settings, from the environment:
 #   GH_REPO   the module's repository, owner/name
@@ -15,7 +17,7 @@
 # server runs is what passed the check. GitHub keeps those files for 14 days; for an older commit, run the check
 # again from the pull request's page (Re-run jobs).
 set -euo pipefail
-: "${GH_REPO:?set GH_REPO to owner/name}" "${CONTROL:?set CONTROL to nwn@your-control-host}"
+: "${CONTROL:?set CONTROL to nwn@your-control-host}"
 DEV_KEY=${DEV_KEY:-$HOME/.ssh/mymodule-dev}
 dev() { ssh -i "$DEV_KEY" -o IdentitiesOnly=yes "$CONTROL" "$@"; }
 
@@ -26,8 +28,12 @@ case ${1:-} in
   main) sha=$(gh api "repos/$GH_REPO/commits/main" -q .sha)
       label=main-${sha:0:7} ;;
   rollback | status) dev "$1"; exit ;;
-  *) echo "usage: load-build.sh pr NUMBER | main | rollback | status" >&2; exit 2 ;;
+  hak) [ -f "${2:-}" ] && [[ $(basename "$2") =~ ^[a-z0-9_]{1,16}\.hak$ ]] || { echo "usage: load-build.sh hak NAME.hak (a file; 16 lowercase letters, digits and _ at most)" >&2; exit 2; }
+      dev "hak $(basename "$2" .hak)" < "$2"; exit ;;
+  hak-remove) dev "hak-remove ${2:-}"; exit ;;
+  *) echo "usage: load-build.sh pr NUMBER | main | rollback | status | hak NAME.hak | hak-remove NAME" >&2; exit 2 ;;
 esac
+: "${GH_REPO:?set GH_REPO to owner/name}"
 
 run=$(gh run list -R "$GH_REPO" -w "Compile check" -c "$sha" -s success -L 1 --json databaseId -q '.[0].databaseId')
 [ -n "$run" ] || { echo "no passing compile check for ${sha:0:7} yet; wait for it, or look at the pull request's checks" >&2; exit 1; }

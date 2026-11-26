@@ -46,3 +46,11 @@ class OpsApi:
     async def online(self) -> dict:
         """Who is online: {"count", "characters": [{"name"}]} (the API's ONLINE_SQL; DMs are left out there)."""
         return await self._call("GET", "/api/v1/server/online")
+
+    async def dev_load(self, target: str, who: str) -> dict:
+        """Chapter 14, tier 3: start the dev server's load workflow for pr-<n>, main or rollback (409 while one runs)."""
+        return await self._call("POST", "/api/v1/dev/load", {"target": target, "requested_by": who})
+
+    async def dev_status(self) -> dict:
+        """What the dev server runs ({"loaded": {...}, "last_run": {...}})."""
+        return await self._call("GET", "/api/v1/dev/status")

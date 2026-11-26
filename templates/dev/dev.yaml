@@ -17,6 +17,8 @@ services:
       NWN_PLAYERPASSWORD: ${NWN_PLAYERPASSWORD}
       NWNX_SQL_HOST: dev-mariadb
       NWNX_SQL_PASSWORD: ${NWNX_SQL_PASSWORD}
+      # Tier 3: the dev game's own download address (dev-downloads below), never the live one. Unset: no dev content.
+      NWN_NWSYNCURL: ${NWN_NWSYNCURL:-}
     ports:
       - "${NWN_PORT:-5121}:${NWN_PORT:-5121}/udp"
     volumes:
@@ -58,3 +60,15 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+
+  # Tier 3: the dev game's download address. It serves the dev folder first (the builders' new files, the dev
+  # manifest and its "latest") and the live download folder for everything else, read-only. Give it its own domain
+  # in Coolify; a service with no domain is simply not reachable, and the dev game then has no dev content.
+  dev-downloads:
+    image: caddy:2.11
+    command: caddy run --config /etc/caddy/Caddyfile
+    volumes:
+      - /home/nwn/dev/nwsync:/srv/dev:ro
+      - /home/nwn/nwsync:/srv/live:ro
+      - /home/nwn/dev/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+    restart: unless-stopped
