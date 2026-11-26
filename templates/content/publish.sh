@@ -40,6 +40,28 @@ in_image nwsync-check "$NWSYNC_URL" "$new" ||
   { echo "the check of $NWSYNC_URL failed: players could not download $new" >&2; exit 1; }
 echo "checked: $NWSYNC_URL hands out $new completely"
 
+# 3b. Tier 3, BUILDERS=yes: a second version for builders' tools, with every hak the build made, not only the ones
+# the module lists. Its files are stored once, beside the players' ones. Haks the module lists come last, so
+# they win in the module's order, as in the game. Builders read it at $NWSYNC_URL/builders, which has its own
+# "latest" and moves now: builders work on what comes next, players get it when you promote.
+if [ "$BUILDERS" = yes ]; then
+  specs=(); for f in "$CONTENT_DIR"/build/hak/*.hak "$CONTENT_DIR"/build/tlk/*.tlk; do specs+=("/src/build/${f#"$CONTENT_DIR"/build/}"); done
+  log=$(mktemp)
+  json=$(in_image nwn_nwsync_write --no-latest --write-origins --description="$(basename "$module" .mod), for builders" \
+    --path /src/build/hak --path /src/build/tlk /nwsync "${specs[@]}" /module.mod 2> "$log") ||
+    { cat "$log" >&2; rm -f "$log"; exit 1; }
+  rm -f "$log"
+  builders=$(grep -o '"sha1": *"[0-9a-f]\{40\}"' <<< "$json" | grep -o '[0-9a-f]\{40\}' || true)
+  [[ $builders =~ ^[0-9a-f]{40}$ ]] || { echo "the NWSync tool did not name a version for builders" >&2; exit 1; }
+  mkdir -p "$NWSYNC_DIR/builders"
+  ln -sfn ../manifests "$NWSYNC_DIR/builders/manifests"
+  ln -sfn ../data "$NWSYNC_DIR/builders/data"
+  in_image nwsync-check "$NWSYNC_URL/builders" "$builders" > /dev/null ||
+    { echo "the check of $NWSYNC_URL/builders failed: builders could not download $builders" >&2; exit 1; }
+  set_latest "$builders" "$NWSYNC_DIR/builders"
+  echo "builders get $builders ($(grep -o '"total_files": *[0-9]*' <<< "$json" | grep -o '[0-9]*$') files) at $NWSYNC_URL/builders"
+fi
+
 # 4. Send the files to the game host's ~/incoming for the release, replacing anything staged there before,
 # and check they arrived whole.
 files=("$CONTENT_DIR"/build/hak/*.hak "$CONTENT_DIR"/build/tlk/*.tlk "$module")

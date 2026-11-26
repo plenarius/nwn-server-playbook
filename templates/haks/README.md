@@ -12,5 +12,8 @@ Copy this folder to make the repository for your haks and your talk table. Chapt
 `haks/my_first_hak` and `tlk/my_tlk.tlk.json` are tiny examples for the chapter's walk-through. Replace them with
 your own content.
 
+`examples/my_models` holds three small ASCII models and their texture, for tier 3's compiled models. Copy it into
+`haks/` to try `MODELS=compile ./build.sh`. Nothing under `examples/` is packed.
+
 Names of haks and talk tables: at most 16 lowercase letters, digits and underscores. Names of files inside a hak:
 at most 16 characters before the extension. `build.sh` checks both.

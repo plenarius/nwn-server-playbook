@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Reads a version's origins file from your download address, the way a builders' tool does: which hak each file
+# of the version comes from. Part of the builder image (chapter 7, tier 3).
+#
+#   nwsync-origins https://nwsync.example.org [VERSION]              each hak, and how many files come from it
+#   nwsync-origins https://nwsync.example.org VERSION FILE...        which hak each of these files comes from
+#
+# VERSION defaults to what the address's "latest" names ("latest" also works). The origins file lists, under each
+# hak and talk table, the files that come from it in the game: where two haks hold the same file, only the one
+# that wins lists it. To get the haks themselves back from a download, chapter 6's fetch_content.sh packs them.
+set -euo pipefail
+url=${1:?give the download address}; url=${url%/}
+version=${2:-latest}
+[ "$version" != latest ] || version=$(curl -fsS "$url/latest")
+[[ $version =~ ^[0-9a-f]{40}$ ]] || { echo "not a version: $version" >&2; exit 1; }
+shift $(($# < 2 ? $# : 2))
+dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
+
+curl -fsS -o "$dir/manifest" "$url/manifests/$version"
+curl -fsS -o "$dir/origin" "$url/manifests/$version.origin" ||
+  { echo "$url has no origins file for $version: it was written without --write-origins" >&2; exit 1; }
+
+# The origins file: a line naming a container (the hak's path when it was written), then one line per file from
+# it, after a tab. Turned into "<hak> <file>"; a hak or talk table is named by its file name.
+awk '!/^\t/ { n = $0; sub(/.*\//, "", n); next } { sub(/^\t/, ""); print n, tolower($0) }' "$dir/origin" > "$dir/map"
+# The manifest: every file, from nwn_nwsync_print's lines (checksum, size, type, name).
+nwn_nwsync_print "$dir/manifest" 2> /dev/null | awk '/^[0-9a-f]{40} / { print tolower($4 "." $3) }' > "$dir/files"
+# A builders' tool trusts the origins file only if it accounts for every file in the manifest, once.
+awk 'NR == FNR { seen[$2]++; next } !($1 in seen) { print "  not in the origins file: " $1; bad = 1 }
+  END { for (f in seen) if (seen[f] > 1) { print "  listed twice: " f; bad = 1 }; exit bad }' \
+  "$dir/map" "$dir/files" >&2 || { echo "the origins file of $version does not match its manifest" >&2; exit 1; }
+
+if [ $# -eq 0 ]; then
+  echo "version $version: $(wc -l < "$dir/files") files from $(awk '{print $1}' "$dir/map" | sort -u | wc -l) haks and talk tables"
+  awk '{ c[$1]++ } END { for (h in c) printf "  %-20s %d files\n", h, c[h] }' "$dir/map" | sort
+  exit 0
+fi
+status=0
+for f in "$@"; do
+  hak=$(awk -v f="${f,,}" '$2 == f { print $1 }' "$dir/map")
+  if [ -n "$hak" ]; then echo "$f  $hak"; else echo "$f  (not in $version)"; status=1; fi
+done
+exit $status
