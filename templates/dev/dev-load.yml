@@ -1,0 +1,85 @@
+name: Dev load
+
+# Puts a build on the dev server (chapter 14, tier 3): the module the compile check built for a pull request, or for
+# main, or the build that was there before. Started by hand from the Actions tab, or by the operations API's
+# POST /api/v1/dev/load, which your Discord bot calls for /dev load.
+#
+# It always runs from main, so a pull request's own code never runs here: it only fetches the module that pull
+# request's compile check built, with tools/load-build.sh (templates/dev/load-build.sh, copied into this repository).
+#
+# Settings (Settings, Secrets and variables, Actions):
+#   secret   DEV_KEY       a key bound to dev.sh on the control host (chapter 14, step 5), made for this repository
+#   variable DEV_CONTROL   the deploy user and the control host: nwn@203.0.113.20
+#   variable DEV_HOST_KEY  the control host's key, one known_hosts line: ssh-keyscan -t ed25519 203.0.113.20
+run-name: dev load ${{ inputs.target }} for ${{ inputs.requested_by }}
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "pr-<number>, main or rollback"
+        required: true
+      requested_by:
+        description: "Who asked, for the run's name"
+        required: false
+        default: "someone"
+
+# One load at a time; a second waits for the first instead of racing it.
+concurrency:
+  group: dev-load
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check what to load
+        env:
+          TARGET: ${{ inputs.target }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ $TARGET =~ ^(pr-[1-9][0-9]{0,6}|main|rollback)$ ]] || { echo "::error::target is pr-<number>, main or rollback"; exit 1; }
+          if [[ $TARGET == pr-* ]]; then
+            # A pull request from a fork is someone else's code: read it, and load it by hand if you trust it.
+            fork=$(gh pr view "${TARGET#pr-}" -R "$GITHUB_REPOSITORY" --json isCrossRepository -q .isCrossRepository)
+            [ "$fork" = false ] || { echo "::error::pull request ${TARGET#pr-} comes from a fork; it is not loaded from chat"; exit 1; }
+          fi
+
+      - name: The dev server's key
+        env:
+          DEV_KEY: ${{ secrets.DEV_KEY }}
+          DEV_HOST_KEY: ${{ vars.DEV_HOST_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          umask 077; printf '%s\n' "$DEV_KEY" > "$RUNNER_TEMP/dev-key"
+          printf '%s\n' "$DEV_HOST_KEY" > ~/.ssh/known_hosts
+
+      - name: Load
+        env:
+          TARGET: ${{ inputs.target }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CONTROL: ${{ vars.DEV_CONTROL }}
+          DEV_KEY: ${{ runner.temp }}/dev-key
+        run: |
+          case $TARGET in
+            pr-*) tools/load-build.sh pr "${TARGET#pr-}" ;;
+            *) tools/load-build.sh "$TARGET" ;;
+          esac
+
+      - name: What the dev server runs now
+        if: always()
+        env:
+          CONTROL: ${{ vars.DEV_CONTROL }}
+          GH_REPO: ${{ github.repository }}
+          DEV_KEY: ${{ runner.temp }}/dev-key
+        run: |
+          { echo '```'; tools/load-build.sh status; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          rm -f "$RUNNER_TEMP/dev-key"

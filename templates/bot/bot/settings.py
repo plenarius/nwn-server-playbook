@@ -46,6 +46,8 @@ class Settings:
     bridge_db_password: str = ""
     bridge_db_name: str = "nwn"
     roster_channel_id: int = 0
+    # Chapter 14, tier 3: /dev for members with this role (and staff). 0: no /dev.
+    dev_role_id: int = 0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -78,6 +80,7 @@ class Settings:
             bridge_db_password=os.environ.get("BRIDGE_DB_PASSWORD", "").strip(),
             bridge_db_name=os.environ.get("BRIDGE_DB_NAME", "nwn").strip(),
             roster_channel_id=_int("ROSTER_CHANNEL_ID"),
+            dev_role_id=_int("DEV_ROLE_ID"),
         )
         missing = [name for name, value in (
             ("DISCORD_TOKEN", s.discord_token), ("GUILD_ID", s.guild_id), ("DASHBOARD_CHANNEL_ID", s.dashboard_channel_id),

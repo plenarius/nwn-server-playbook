@@ -37,6 +37,10 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-}
       MYSQL_DB: ${MYSQL_DB:-nwn}
       ONLINE_SQL: ${ONLINE_SQL:-}
+      # The dev server (chapter 14, tier 3): the module repository whose dev load workflow the API starts (with
+      # GITHUB_TOKEN, which then needs Actions: write there), and the dev server's status file, mounted below.
+      DEV_REPO: ${DEV_REPO:-}
+      DEV_STATUS_FILE: ${DEV_STATUS_FILE:-}
     ports:
       # Only on the control host's private address. The API can stop your game, so it never goes on a public one.
       - "${OPS_API_BIND:-10.77.0.1}:8100:8100"
@@ -48,4 +52,7 @@ services:
       # Chapter 9, tier 3: the API's copy of the game's files, made by gamedata-sync.sh. Make the folder first
       # (mkdir -p ~/ops-api/gamedata), then take the # off the next line.
       # - /home/nwn/ops-api/gamedata:/data/game:ro
+      # Chapter 14, tier 3: what the dev server runs, written by its dev.sh. Make the folder first
+      # (mkdir -p ~/dev/status), take the # off, and set DEV_STATUS_FILE=/dev-status/status.json.
+      # - /home/nwn/dev/status:/dev-status:ro
     restart: unless-stopped
