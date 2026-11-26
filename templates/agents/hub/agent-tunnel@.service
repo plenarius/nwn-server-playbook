@@ -1,0 +1,19 @@
+# agent-tunnel@NAME: a lasting SSH port-forward from this hub to the agent server on worker NAME, which listens
+# on the worker's loopback only. A user unit on the hub: one instance per worker, settings in
+# ~/.config/agent-tunnels/NAME.env (see tunnel.env.example). Chapter 15, tier 3.
+#   install -D -m 644 agent-tunnel@.service ~/.config/systemd/user/agent-tunnel@.service
+#   systemctl --user daemon-reload && systemctl --user enable --now agent-tunnel@NAME
+#   loginctl enable-linger "$USER"      (so it runs while you are logged out)
+[Unit]
+Description=SSH tunnel to the agent server on %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=%h/.config/agent-tunnels/%i.env
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 $SSH_OPTS -L 127.0.0.1:${LOCAL_PORT}:127.0.0.1:${REMOTE_PORT} ${SSH_TARGET}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

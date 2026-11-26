@@ -1,0 +1,8 @@
+# Started by agent-tmp-clean.timer. Chapter 15, tier 3.
+[Unit]
+Description=Remove scratch folders of finished agent sessions from /tmp
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/agent-tmp-clean
+Nice=10

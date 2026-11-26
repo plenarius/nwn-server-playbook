@@ -1,0 +1,4 @@
+# Which token git gets for which repository: "host/owner/ VARIABLE". The first line that matches wins, so the
+# most specific goes first. VARIABLE is a name in the secrets file (/run/agent/secrets.env). Chapter 15.
+github.com/my-personal-account/ GH_TOKEN_PERSONAL
+github.com/ GH_TOKEN
