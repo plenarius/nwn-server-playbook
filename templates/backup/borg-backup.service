@@ -1,0 +1,13 @@
+# Runs one off-site borg backup. Installed by chapter 12, tier 2; started by borg-backup.timer.
+[Unit]
+Description=Off-site borg backup
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nwn-borg-backup
+# A backup is worth waiting for, but not forever.
+TimeoutStartSec=6h
+Nice=10
+IOSchedulingClass=idle

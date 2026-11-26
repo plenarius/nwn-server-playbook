@@ -1,0 +1,16 @@
+# /etc/nwn-borg/borg.conf on the control host. Chapter 12, tier 2. Read by nwn-borg-backup as a shell file.
+
+NAME=control
+REPO=ssh://borg@STORAGE/./repos/control
+#BORG_REMOTE_PATH=borg-1.4
+
+# Coolify keeps everything of its own under /data/coolify: its settings and APP_KEY (source/.env), the SSH keys
+# it reaches your servers with (ssh/keys), and the files of every resource. The hook writes the dump of its
+# database into /var/backups/nwn-borg. Add the folders of anything else that lives only on this machine.
+PATHS=(
+  /data/coolify
+  /var/backups/nwn-borg
+)
+
+# Coolify's own scheduled backups, if you switched them on, are already in the dump.
+EXCLUDE=(/data/coolify/backups)
