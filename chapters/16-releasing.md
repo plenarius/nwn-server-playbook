@@ -1,9 +1,9 @@
 # Chapter 16. Day to day: releasing
 
-**Status:** tiers 1 and 2 are written and tested. Tier 1 is a checklist and one script; tier 2, further down,
+**Status:** all three tiers are written and tested. Tier 1 is a checklist and one script; tier 2, further down,
 ties the staged releases of chapters 5, 6, 7 and 12 into one routine, with what to do when each step fails and what
-a second person needs to run it. Tier 3 (a calendar of things that expire, and our full list of incidents) is not
-written yet.
+a second person needs to run it. Tier 3, at the end, adds a calendar of things that expire, a release train for
+many contributors, and our full list of incidents.
 
 ## What you learn
 
