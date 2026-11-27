@@ -4,7 +4,7 @@ A guide to running your own Neverwinter Nights: Enhanced Edition persistent worl
 and for the AI agents that help them. Layonara, a persistent world online since 2002, is the worked example: the
 guide shows what it runs and why, with hostnames, addresses and anything about players replaced.
 
-**Status:** in progress and private. Nothing here is ready to follow yet.
+**Status:** all three tiers are written, and every step was run for real on fresh servers before it was written down (each chapter says what was tested, on what, and what wasn't). If something doesn't work for you, please open an issue; I'd love to hear about it.
 
 ## Three tiers
 
