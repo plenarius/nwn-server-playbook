@@ -1,9 +1,8 @@
 # Chapter 11. A website
 
-**Status:** tier 1 is written and tested. Tier 2, further down, is written and tested in two parts: the site moves
-to the control host with deploy on merge, then gains a live status page. Tier 3's first part, character pages for
-the players who ask for one, is written and tested; its sign-in shared by a website, a forum and a wiki is not
-written yet.
+**Status:** all three tiers are written and tested. Tier 1 is a one-page site. Tier 2, further down, is written and tested in two parts: the site moves
+to the control host with deploy on merge, then gains a live status page. Tier 3 is written and tested in two parts too:
+character pages for the players who ask for one, then one sign-in shared by the website, a forum and a wiki.
 
 ## What you learn
 

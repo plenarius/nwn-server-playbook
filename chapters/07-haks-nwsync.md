@@ -1,8 +1,8 @@
 # Chapter 7. Custom content: haks, the talk table and NWSync
 
-**Status:** tiers 1 and 2 are written and tested. Tier 2, further down, builds the content on the control host in
+**Status:** all three tiers are written and tested. Tier 2, further down, builds the content on the control host in
 a pinned builder image, serves it from there, stages every new version and checks it before players can get it,
-and cleans out old content. Tier 3 (compiled models, content for builders' tools) is not written yet.
+and cleans out old content. Tier 3, at the end, compiles models and serves content for builders' tools.
 
 ## What you learn
 
